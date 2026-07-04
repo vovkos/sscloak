@@ -3,6 +3,8 @@ set -euo pipefail
 
 APP_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 SSCLOAK_DIR="$APP_DIR/sscloak"
+LOCAL_DIR="$APP_DIR/local"
+CLIENT_ENV="$LOCAL_DIR/client.env"
 cd "$APP_DIR"
 
 usage() {
@@ -63,8 +65,84 @@ detect_bin() {
   return 1
 }
 
+load_client_env() {
+  if [[ ! -f "$CLIENT_ENV" ]]; then
+    echo "Missing $CLIENT_ENV." >&2
+    echo "Create it from local/client.example.env and fill in the shared client values." >&2
+    return 1
+  fi
+
+  # shellcheck disable=SC1090
+  source "$CLIENT_ENV"
+
+  local missing=()
+  for name in SS_HOST SS_PORT SS_METHOD SS_PASSWORD CK_UID CK_PUBLIC_KEY; do
+    [[ -n "${!name:-}" ]] || missing+=("$name")
+  done
+
+  if ((${#missing[@]})); then
+    echo "Missing required values in $CLIENT_ENV:" >&2
+    printf '  - %s\n' "${missing[@]}" >&2
+    return 1
+  fi
+
+  CK_SERVER_NAME="${CK_SERVER_NAME:-tile.openstreetmap.org}"
+  CK_BROWSER_SIG="${CK_BROWSER_SIG:-chrome}"
+  CK_PROXY_METHOD="${CK_PROXY_METHOD:-shadowsocks}"
+  CK_ENCRYPTION_METHOD="${CK_ENCRYPTION_METHOD:-aes-gcm}"
+  CK_TRANSPORT="${CK_TRANSPORT:-direct}"
+  CK_STREAM_TIMEOUT="${CK_STREAM_TIMEOUT:-300}"
+  CK_NUM_CONN="${CK_NUM_CONN:-1}"
+  SS_LOCAL_SERVER="${SS_LOCAL_SERVER:-127.0.0.1}"
+  SS_LOCAL_SERVER_PORT="${SS_LOCAL_SERVER_PORT:-16789}"
+  SS_LOCAL_ADDRESS="${SS_LOCAL_ADDRESS:-127.0.0.1}"
+  SS_LOCAL_PORT="${SS_LOCAL_PORT:-10810}"
+  SS_TIMEOUT="${SS_TIMEOUT:-60}"
+}
+
+json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  printf '%s' "$value"
+}
+
+write_client_configs() {
+  load_client_env
+
+  umask 077
+  cat > "$SSCLOAK_DIR/ck-client.json" <<EOF
+{
+  "BrowserSig": "$(json_escape "$CK_BROWSER_SIG")",
+  "EncryptionMethod": "$(json_escape "$CK_ENCRYPTION_METHOD")",
+  "NumConn": $CK_NUM_CONN,
+  "ProxyMethod": "$(json_escape "$CK_PROXY_METHOD")",
+  "PublicKey": "$(json_escape "$CK_PUBLIC_KEY")",
+  "RemoteHost": "$(json_escape "$SS_HOST")",
+  "RemotePort": "$(json_escape "$SS_PORT")",
+  "ServerName": "$(json_escape "$CK_SERVER_NAME")",
+  "StreamTimeout": $CK_STREAM_TIMEOUT,
+  "Transport": "$(json_escape "$CK_TRANSPORT")",
+  "UID": "$(json_escape "$CK_UID")"
+}
+EOF
+
+  cat > "$SSCLOAK_DIR/ss-local.json" <<EOF
+{
+  "server": "$(json_escape "$SS_LOCAL_SERVER")",
+  "server_port": $SS_LOCAL_SERVER_PORT,
+  "local_address": "$(json_escape "$SS_LOCAL_ADDRESS")",
+  "local_port": $SS_LOCAL_PORT,
+  "method": "$(json_escape "$SS_METHOD")",
+  "password": "$(json_escape "$SS_PASSWORD")",
+  "timeout": $SS_TIMEOUT
+}
+EOF
+}
+
 write_runtime_env() {
-  local ck_bin ss_bin tun2socks_bin remote_host vps_ip
+  local ck_bin ss_bin tun2socks_bin vps_ip
 
   ck_bin="$(detect_bin CK_BIN ck-client)" || {
     echo "Could not find ck-client. Install Cloak client or set CK_BIN=/path/to/ck-client." >&2
@@ -79,15 +157,9 @@ write_runtime_env() {
     return 1
   }
 
-  if [[ -f "$SSCLOAK_DIR/ck-client.json" ]]; then
-    remote_host="$(sed -n 's/.*"RemoteHost"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SSCLOAK_DIR/ck-client.json" | head -n 1)"
-  else
-    remote_host=""
-  fi
-
   vps_ip="${VPS_IP:-}"
-  if [[ -z "$vps_ip" && "$remote_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    vps_ip="$remote_host"
+  if [[ -z "$vps_ip" && "$SS_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    vps_ip="$SS_HOST"
   fi
 
   umask 022
@@ -96,26 +168,13 @@ write_runtime_env() {
     printf 'SS_BIN=%q\n' "$ss_bin"
     printf 'TUN2SOCKS_BIN=%q\n' "$tun2socks_bin"
     printf 'SSCLOAK_DIR=%q\n' "$SSCLOAK_DIR"
-    [[ -n "$remote_host" ]] && printf 'REMOTE_HOST=%q\n' "$remote_host"
+    printf 'REMOTE_HOST=%q\n' "$SS_HOST"
     [[ -n "$vps_ip" ]] && printf 'VPS_IP=%q\n' "$vps_ip"
   } > "$SSCLOAK_DIR/runtime.env"
 }
 
 check_client_configs() {
-  local missing=()
-
-  [[ -f "$SSCLOAK_DIR/ck-client.json" ]] || missing+=("$SSCLOAK_DIR/ck-client.json")
-  [[ -f "$SSCLOAK_DIR/ss-local.json" ]] || missing+=("$SSCLOAK_DIR/ss-local.json")
-
-  if ((${#missing[@]})); then
-    echo "Missing local client config:" >&2
-    printf '  - %s\n' "${missing[@]}" >&2
-    echo >&2
-    echo "Create them from the examples and fill in your server values:" >&2
-    echo "  cp sscloak/ck-client.example.json sscloak/ck-client.json" >&2
-    echo "  cp sscloak/ss-local.example.json sscloak/ss-local.json" >&2
-    return 1
-  fi
+  write_client_configs
 }
 
 get_vps_ip() {
@@ -267,6 +326,9 @@ start_vpn() {
   if [[ ! -f "$SSCLOAK_DIR/runtime.env" ]]; then
     echo "Missing $SSCLOAK_DIR/runtime.env; running install first."
     install_vpn
+  else
+    write_client_configs
+    write_runtime_env
   fi
 
   echo "Cleaning stale sscloak state..."
@@ -332,6 +394,7 @@ restart_vpn() {
 
 run_vpn() {
   need_sudo "$@"
+  write_client_configs
 
   cleanup() {
     echo

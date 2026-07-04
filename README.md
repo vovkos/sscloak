@@ -59,15 +59,19 @@ The installer stores the resolved binary paths in `sscloak/runtime.env`.
 
 ## Setup
 
-Create local client configs from the examples:
+Create the single local client values file:
 
 ```bash
-cp sscloak/ck-client.example.json sscloak/ck-client.json
-cp sscloak/ss-local.example.json sscloak/ss-local.json
+cp local/client.example.env local/client.env
 ```
 
-Edit the copied files with your server host, Cloak UID/public key, and
-Shadowsocks password. The real `*.json` files are ignored by git because they
+Edit `local/client.env` with your server host, Cloak UID/public key, and
+Shadowsocks password. `./vpn.sh install` and `./vpn.sh on` generate the
+runtime files in `sscloak/ck-client.json` and `sscloak/ss-local.json` from that
+single source.
+
+The real `local/client.env`, generated `sscloak/*.json` files, and
+Shadowrocket import files under `local/` are ignored by git because they
 contain credentials.
 
 From this directory:
@@ -100,12 +104,21 @@ restore routes.
 
 ## Config Files
 
-Client config lives in:
+Client secrets live in one file:
+
+```text
+local/client.env
+```
+
+Generated runtime config lives in:
 
 ```text
 sscloak/ck-client.json
 sscloak/ss-local.json
 ```
+
+Do not edit the generated JSON files directly. Change `local/client.env`, then
+run `./vpn.sh install` or `./vpn.sh on`.
 
 ## Server Setup
 
@@ -253,4 +266,4 @@ shadowsocks tcp server listening on 127.0.0.1:6789
 Listening on :<SS_PORT>
 ```
 
-Use `/opt/sscloak-8443/client.env` to fill in the local client config examples.
+Use `/opt/sscloak-8443/client.env` to fill in `local/client.env`.

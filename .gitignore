@@ -1,4 +1,7 @@
 # Local client credentials and generated install state
+local/client.env
+local/shadowrocket-*.txt
+local/shadowrocket-*.png
 sscloak/ck-client.json
 sscloak/ss-local.json
 sscloak/runtime.env
