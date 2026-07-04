@@ -1,4 +1,4 @@
-# Shadowsocks over Cloak VPN Client
+﻿# Shadowsocks over Cloak VPN Client
 
 This directory contains a Linux client setup for routing traffic through:
 
@@ -55,23 +55,23 @@ To change the fallback search roots:
 BIN_SEARCH_DIRS=/opt:/srv/tools ./vpn.sh install
 ```
 
-The installer stores the resolved binary paths in `sscloak/runtime.env`.
+The installer stores the resolved binary paths in `config-linux/runtime.env`.
 
 ## Setup
 
 Create the single local client values file:
 
 ```bash
-cp local/client.example.env local/client.env
+cp config-local/client.example.env config-local/client.env
 ```
 
-Edit `local/client.env` with your server host, Cloak UID/public key, and
+Edit `config-local/client.env` with your server host, Cloak UID/public key, and
 Shadowsocks password. `./vpn.sh install` and `./vpn.sh on` generate the
-runtime files in `sscloak/ck-client.json` and `sscloak/ss-local.json` from that
+runtime files in `config-linux/ck-client.json` and `config-linux/ss-local.json` from that
 single source.
 
-The real `local/client.env`, generated `sscloak/*.json` files, and
-Shadowrocket import files under `local/` are ignored by git because they
+The real `config-local/client.env`, generated `config-linux/*.json` files, and
+Shadowrocket import files under `config-local/` are ignored by git because they
 contain credentials.
 
 From this directory:
@@ -102,22 +102,51 @@ again from the new location.
 `./vpn.sh run` starts the VPN in foreground mode. Press Ctrl-C to stop it and
 restore routes.
 
+## Windows Full-Tunnel Setup
+
+Windows Shadowsocks GUI mode is a system proxy, not a full VPN. For full-device
+routing, use the PowerShell controller:
+
+```powershell
+.\vpn.cmd install
+```
+
+Then start an elevated PowerShell from this directory:
+
+```powershell
+.\vpn.cmd run
+```
+
+`run` starts `ck-client`, `ss-local`, and `tun2socks`, creates a TUN adapter
+named `sscloak`, adds split default routes through it, and restores routes when
+you press Ctrl-C. The background commands are:
+
+```powershell
+.\vpn.cmd on
+.\vpn.cmd off
+.\vpn.cmd status
+.\vpn.cmd restart
+```
+
+The Windows script reads the same `config-local/client.env` file as the Linux script
+and writes generated runtime files under `config-windows/`.
+
 ## Config Files
 
 Client secrets live in one file:
 
 ```text
-local/client.env
+config-local/client.env
 ```
 
 Generated runtime config lives in:
 
 ```text
-sscloak/ck-client.json
-sscloak/ss-local.json
+config-linux/ck-client.json
+config-linux/ss-local.json
 ```
 
-Do not edit the generated JSON files directly. Change `local/client.env`, then
+Do not edit the generated JSON files directly. Change `config-local/client.env`, then
 run `./vpn.sh install` or `./vpn.sh on`.
 
 ## Server Setup
@@ -266,4 +295,5 @@ shadowsocks tcp server listening on 127.0.0.1:6789
 Listening on :<SS_PORT>
 ```
 
-Use `/opt/sscloak-8443/client.env` to fill in `local/client.env`.
+Use `/opt/sscloak-8443/client.env` to fill in `config-local/client.env`.
+

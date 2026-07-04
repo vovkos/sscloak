@@ -1,10 +1,16 @@
 # Local client credentials and generated install state
-local/client.env
-local/shadowrocket-*.txt
-local/shadowrocket-*.png
-sscloak/ck-client.json
-sscloak/ss-local.json
-sscloak/runtime.env
+config-local/client.env
+config-local/shadowrocket-*.txt
+config-local/shadowrocket-*.png
+config-linux/ck-client.json
+config-linux/ss-local.json
+config-linux/runtime.env
+config-windows/ck-client.json
+config-windows/ss-local.json
+config-windows/runtime.json
+config-windows/state.json
+config-windows/logs/
+sscloak-windows/
 
 # Import links and QR codes contain credentials
 shadowrocket-*.txt

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 APP_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-SSCLOAK_DIR="$APP_DIR/sscloak"
-LOCAL_DIR="$APP_DIR/local"
+SSCLOAK_DIR="$APP_DIR/config-linux"
+LOCAL_DIR="$APP_DIR/config-local"
 CLIENT_ENV="$LOCAL_DIR/client.env"
 cd "$APP_DIR"
 
@@ -68,7 +68,7 @@ detect_bin() {
 load_client_env() {
   if [[ ! -f "$CLIENT_ENV" ]]; then
     echo "Missing $CLIENT_ENV." >&2
-    echo "Create it from local/client.example.env and fill in the shared client values." >&2
+    echo "Create it from config-local/client.example.env and fill in the shared client values." >&2
     return 1
   fi
 
@@ -110,6 +110,7 @@ json_escape() {
 
 write_client_configs() {
   load_client_env
+  mkdir -p "$SSCLOAK_DIR"
 
   umask 077
   cat > "$SSCLOAK_DIR/ck-client.json" <<EOF
@@ -143,6 +144,7 @@ EOF
 
 write_runtime_env() {
   local ck_bin ss_bin tun2socks_bin vps_ip
+  mkdir -p "$SSCLOAK_DIR"
 
   ck_bin="$(detect_bin CK_BIN ck-client)" || {
     echo "Could not find ck-client. Install Cloak client or set CK_BIN=/path/to/ck-client." >&2
@@ -224,11 +226,11 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=$run_user
-WorkingDirectory=$SSCLOAK_DIR
+WorkingDirectory=$APP_DIR
 EnvironmentFile=$SSCLOAK_DIR/runtime.env
 ExecStartPre=/bin/rm -f /tmp/ck-client-sscloak-8443.pid /tmp/ss-local-sscloak-8443.pid
-ExecStart=$SSCLOAK_DIR/local-start.sh
-ExecStop=$SSCLOAK_DIR/local-stop.sh
+ExecStart=$APP_DIR/vpn.sh __local-start
+ExecStop=$APP_DIR/vpn.sh __local-stop
 RemainAfterExit=yes
 
 [Install]
@@ -244,9 +246,9 @@ Requires=sscloak-client.service
 [Service]
 Type=simple
 EnvironmentFile=$SSCLOAK_DIR/runtime.env
-ExecStartPre=$SSCLOAK_DIR/tun-up.sh
-ExecStart=$SSCLOAK_DIR/tun-start.sh
-ExecStopPost=$SSCLOAK_DIR/tun-down.sh
+ExecStartPre=$APP_DIR/vpn.sh __tun-up
+ExecStart=$APP_DIR/vpn.sh __tun-start
+ExecStopPost=$APP_DIR/vpn.sh __tun-down
 Restart=on-failure
 
 [Install]
@@ -257,26 +259,7 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
-STATE_FILE="/run/sscloak-vpn-was-active"
-
-case "\${1:-}" in
-  pre)
-    if systemctl is-active --quiet sscloak-tun.service; then
-      touch "\$STATE_FILE"
-    else
-      rm -f "\$STATE_FILE"
-    fi
-    ;;
-  post)
-    if [[ -f "\$STATE_FILE" ]]; then
-      systemctl stop sscloak-tun.service sscloak-client.service 2>/dev/null || true
-      "$SSCLOAK_DIR/clean.sh" >/dev/null 2>&1 || true
-      systemctl reset-failed sscloak-client.service sscloak-tun.service 2>/dev/null || true
-      systemctl start sscloak-tun.service
-      rm -f "\$STATE_FILE"
-    fi
-    ;;
-esac
+exec "$APP_DIR/vpn.sh" __sleep-hook "\${1:-}"
 EOF
 
   sudo install -m 0755 "$sleep_hook" /usr/lib/systemd/system-sleep/sscloak-vpn
@@ -305,11 +288,258 @@ check_amnezia_blockers() {
   fi
 }
 
+load_runtime_env() {
+  if [[ -f "$SSCLOAK_DIR/runtime.env" ]]; then
+    # shellcheck disable=SC1090
+    source "$SSCLOAK_DIR/runtime.env"
+  fi
+}
+
+start_detached() {
+  local pid_file="$1"
+  local log_file="$2"
+  shift 2
+
+  if command -v setsid >/dev/null 2>&1; then
+    setsid -f "$@" >"$log_file" 2>&1
+    sleep 0.2
+    pgrep -n -f "$*" >"$pid_file"
+  else
+    nohup "$@" >"$log_file" 2>&1 &
+    echo "$!" >"$pid_file"
+  fi
+}
+
+local_start() {
+  load_runtime_env
+
+  local ck_bin ss_bin ck_log ss_log ck_pid_file ss_pid_file
+  ck_bin="$(detect_bin CK_BIN ck-client)"
+  ss_bin="$(detect_bin SS_BIN ss-local)"
+  ck_log="${CK_LOG:-/tmp/ck-client-sscloak-8443.log}"
+  ss_log="${SS_LOG:-/tmp/ss-local-sscloak-8443.log}"
+  ck_pid_file="${CK_PID_FILE:-/tmp/ck-client-sscloak-8443.pid}"
+  ss_pid_file="${SS_PID_FILE:-/tmp/ss-local-sscloak-8443.pid}"
+
+  if (( EUID == 0 )); then
+    echo "Do not run local client startup as root." >&2
+    exit 1
+  fi
+
+  if ss -lnt | awk '{print $4}' | grep -qx '127.0.0.1:16789'; then
+    echo "Port 127.0.0.1:16789 is already in use" >&2
+    exit 1
+  fi
+
+  if ss -lnt | awk '{print $4}' | grep -qx '127.0.0.1:10810'; then
+    echo "Port 127.0.0.1:10810 is already in use" >&2
+    exit 1
+  fi
+
+  start_detached "$ck_pid_file" "$ck_log" "$ck_bin" -c "$SSCLOAK_DIR/ck-client.json" -l 16789
+  sleep 1
+
+  if ! kill -0 "$(cat "$ck_pid_file")" 2>/dev/null; then
+    echo "ck-client failed to start. Log:" >&2
+    tail -80 "$ck_log" >&2
+    exit 1
+  fi
+
+  start_detached "$ss_pid_file" "$ss_log" "$ss_bin" -c "$SSCLOAK_DIR/ss-local.json"
+  sleep 1
+
+  if ! kill -0 "$(cat "$ss_pid_file")" 2>/dev/null; then
+    echo "ss-local failed to start. Log:" >&2
+    tail -80 "$ss_log" >&2
+    kill "$(cat "$ck_pid_file")" 2>/dev/null || true
+    rm -f "$ck_pid_file"
+    exit 1
+  fi
+
+  echo "sscloak local client is running on 127.0.0.1:10810"
+}
+
+local_stop() {
+  load_runtime_env
+
+  local ck_pid_file ss_pid_file
+  ck_pid_file="${CK_PID_FILE:-/tmp/ck-client-sscloak-8443.pid}"
+  ss_pid_file="${SS_PID_FILE:-/tmp/ss-local-sscloak-8443.pid}"
+
+  if [[ -f "$ss_pid_file" ]] && kill -0 "$(cat "$ss_pid_file")" 2>/dev/null; then
+    kill "$(cat "$ss_pid_file")" 2>/dev/null || true
+    rm -f "$ss_pid_file"
+  fi
+
+  if [[ -f "$ck_pid_file" ]] && kill -0 "$(cat "$ck_pid_file")" 2>/dev/null; then
+    kill "$(cat "$ck_pid_file")" 2>/dev/null || true
+    rm -f "$ck_pid_file"
+  fi
+
+  pkill -f "ck-client .*$SSCLOAK_DIR/ck-client.json" 2>/dev/null || true
+  pkill -f "ss-local .*$SSCLOAK_DIR/ss-local.json" 2>/dev/null || true
+}
+
+tun_up() {
+  load_runtime_env
+
+  local tun_dev tun_addr vps_ip state_file orig_gw orig_dev
+  tun_dev="${TUN_DEV:-tun1}"
+  tun_addr="${TUN_ADDR:-198.19.0.1/15}"
+  vps_ip="${VPS_IP:-}"
+  state_file="${STATE_FILE:-/run/sscloak-vpn-default-route}"
+
+  if (( EUID != 0 )); then
+    echo "Run via: ./vpn.sh on" >&2
+    exit 1
+  fi
+
+  if [[ -z "$vps_ip" ]]; then
+    echo "VPS_IP is not set. Run ./vpn.sh install, or set VPS_IP explicitly." >&2
+    exit 1
+  fi
+
+  if [[ -f "$state_file" ]]; then
+    # shellcheck disable=SC1090
+    source "$state_file"
+  else
+    orig_gw="$(ip -4 route show default | awk -v tun="$tun_dev" '$5 != tun { print $3; exit }')"
+    orig_dev="$(ip -4 route show default | awk -v tun="$tun_dev" '$5 != tun { print $5; exit }')"
+
+    if [[ -z "${orig_gw:-}" || -z "${orig_dev:-}" ]]; then
+      echo "Could not find a non-${tun_dev} default route" >&2
+      exit 1
+    fi
+
+    umask 022
+    printf 'ORIG_GW=%q\nORIG_DEV=%q\n' "$orig_gw" "$orig_dev" > "$state_file"
+  fi
+
+  ip tuntap add mode tun dev "$tun_dev" 2>/dev/null || true
+  ip addr flush dev "$tun_dev"
+  ip addr add "$tun_addr" dev "$tun_dev"
+  ip link set "$tun_dev" mtu 1500 up
+
+  ip route replace "$vps_ip/32" via "$ORIG_GW" dev "$ORIG_DEV"
+
+  while read -r route; do
+    [[ -z "$route" ]] && continue
+    if [[ "$route" != *" dev $tun_dev"* ]]; then
+      ip route del $route 2>/dev/null || true
+    fi
+  done < <(ip -4 route show 0.0.0.0/1)
+
+  while read -r route; do
+    [[ -z "$route" ]] && continue
+    if [[ "$route" != *" dev $tun_dev"* ]]; then
+      ip route del $route 2>/dev/null || true
+    fi
+  done < <(ip -4 route show 128.0.0.0/1)
+
+  ip route replace default dev "$tun_dev" metric 1
+  ip route replace 0.0.0.0/1 dev "$tun_dev" metric 1
+  ip route replace 128.0.0.0/1 dev "$tun_dev" metric 1
+  ip route flush cache
+}
+
+tun_start() {
+  load_runtime_env
+
+  local tun_dev socks_addr tun2socks_bin
+  tun_dev="${TUN_DEV:-tun1}"
+  socks_addr="${SOCKS_ADDR:-127.0.0.1:10810}"
+  tun2socks_bin="$(detect_bin TUN2SOCKS_BIN tun2socks)"
+
+  exec "$tun2socks_bin" -device "tun://$tun_dev" -proxy "socks5://$socks_addr" -loglevel info
+}
+
+tun_down() {
+  load_runtime_env
+
+  local tun_dev vps_ip state_file
+  tun_dev="${TUN_DEV:-tun1}"
+  vps_ip="${VPS_IP:-}"
+  state_file="${STATE_FILE:-/run/sscloak-vpn-default-route}"
+
+  if (( EUID != 0 )); then
+    echo "Run via: ./vpn.sh off" >&2
+    exit 1
+  fi
+
+  while read -r route; do
+    [[ -z "$route" ]] && continue
+    ip route del $route 2>/dev/null || true
+  done < <(ip -4 route show dev "$tun_dev" 2>/dev/null || true)
+
+  if [[ -n "$vps_ip" ]]; then
+    ip route del "$vps_ip/32" 2>/dev/null || true
+  fi
+  ip link set "$tun_dev" down 2>/dev/null || true
+  ip tuntap del mode tun dev "$tun_dev" 2>/dev/null || ip link del "$tun_dev" 2>/dev/null || true
+
+  rm -f "$state_file"
+}
+
+clean_vpn() {
+  load_runtime_env
+
+  local tun_dev vps_ip state_file
+  tun_dev="${TUN_DEV:-tun1}"
+  vps_ip="${VPS_IP:-}"
+  state_file="${STATE_FILE:-/run/sscloak-vpn-default-route}"
+
+  if (( EUID != 0 )); then
+    echo "Run with sudo: sudo ./vpn.sh off" >&2
+    exit 1
+  fi
+
+  systemctl stop sscloak-tun.service sscloak-client.service 2>/dev/null || true
+  local_stop 2>/dev/null || true
+  pkill -f 'tun2socks .*socks5://127\.0\.0\.1:10810' 2>/dev/null || true
+
+  while read -r route; do
+    [[ -z "$route" ]] && continue
+    ip route del $route 2>/dev/null || true
+  done < <(ip -4 route show dev "$tun_dev" 2>/dev/null || true)
+
+  if [[ -n "$vps_ip" ]]; then
+    ip route del "$vps_ip/32" 2>/dev/null || true
+  fi
+  ip link set "$tun_dev" down 2>/dev/null || true
+  ip tuntap del mode tun dev "$tun_dev" 2>/dev/null || ip link del "$tun_dev" 2>/dev/null || true
+
+  rm -f "$state_file" /tmp/ck-client-sscloak-8443.pid /tmp/ss-local-sscloak-8443.pid
+  echo "sscloak stopped and cleaned"
+}
+
+sleep_hook() {
+  local state_file="/run/sscloak-vpn-was-active"
+
+  case "${1:-}" in
+    pre)
+      if systemctl is-active --quiet sscloak-tun.service; then
+        touch "$state_file"
+      else
+        rm -f "$state_file"
+      fi
+      ;;
+    post)
+      if [[ -f "$state_file" ]]; then
+        systemctl stop sscloak-tun.service sscloak-client.service 2>/dev/null || true
+        "$APP_DIR/vpn.sh" __clean >/dev/null 2>&1 || true
+        systemctl reset-failed sscloak-client.service sscloak-tun.service 2>/dev/null || true
+        systemctl start sscloak-tun.service
+        rm -f "$state_file"
+      fi
+      ;;
+  esac
+}
+
 install_vpn() {
   local run_user
   run_user="${SUDO_USER:-$(id -un)}"
 
-  chmod +x "$SSCLOAK_DIR"/*.sh "$APP_DIR/vpn.sh"
+  chmod +x "$APP_DIR/vpn.sh"
   check_client_configs
   write_runtime_env
 
@@ -332,7 +562,7 @@ start_vpn() {
   fi
 
   echo "Cleaning stale sscloak state..."
-  sudo "$SSCLOAK_DIR/clean.sh" >/dev/null
+  sudo "$APP_DIR/vpn.sh" __clean >/dev/null
   sudo systemctl reset-failed sscloak-client.service sscloak-tun.service 2>/dev/null || true
 
   check_amnezia_blockers
@@ -343,7 +573,7 @@ start_vpn() {
 
 stop_vpn() {
   need_sudo "$@"
-  "$SSCLOAK_DIR/clean.sh"
+  clean_vpn
 }
 
 status_vpn() {
@@ -387,7 +617,7 @@ status_vpn() {
 }
 
 restart_vpn() {
-  sudo "$SSCLOAK_DIR/clean.sh" >/dev/null
+  sudo "$APP_DIR/vpn.sh" __clean >/dev/null
   sleep 1
   start_vpn
 }
@@ -399,14 +629,14 @@ run_vpn() {
   cleanup() {
     echo
     echo "Stopping sscloak VPN..."
-    "$SSCLOAK_DIR/clean.sh" >/dev/null 2>&1 || true
+    "$APP_DIR/vpn.sh" __clean >/dev/null 2>&1 || true
     echo "Stopped."
   }
 
   trap cleanup EXIT INT TERM
 
   echo "Cleaning stale sscloak state..."
-  "$SSCLOAK_DIR/clean.sh" >/dev/null 2>&1 || true
+  "$APP_DIR/vpn.sh" __clean >/dev/null 2>&1 || true
   systemctl reset-failed sscloak-client.service sscloak-tun.service 2>/dev/null || true
 
   check_amnezia_blockers
@@ -434,6 +664,13 @@ case "$cmd" in
   status) status_vpn "$@" ;;
   restart) restart_vpn "$@" ;;
   run) run_vpn "$@" ;;
+  __local-start) local_start "$@" ;;
+  __local-stop) local_stop "$@" ;;
+  __tun-up) tun_up "$@" ;;
+  __tun-start) tun_start "$@" ;;
+  __tun-down) tun_down "$@" ;;
+  __clean) clean_vpn "$@" ;;
+  __sleep-hook) sleep_hook "$@" ;;
   -h|--help|help|"") usage ;;
   *)
     usage >&2
