@@ -16,13 +16,14 @@ Install these on the client machine:
 - `iproute2`, for `ip` and TUN route setup
 - `curl`, for status checks
 - `ss`, usually provided by `iproute2`, for local port checks
-- `ck-client`, the Cloak client
-- `ss-local`, the Shadowsocks local client
-- `tun2socks`, for routing the TUN interface into the local SOCKS proxy
+- AmneziaVPN, used as the source for:
+  - `ck-client`, the Cloak client
+  - `ss-local`, the Shadowsocks local client
+  - `tun2socks`, for routing the TUN interface into the local SOCKS proxy
 
-AmneziaVPN is not required, but it is acceptable if it is how you already have
-compatible `ck-client`, `ss-local`, and `tun2socks` binaries. The scripts do not
-depend on Amnezia-specific paths.
+The scripts only need those three binaries, but this setup assumes AmneziaVPN is
+how they are installed. If you provide compatible binaries another way, set
+explicit paths as shown below.
 
 ## Binary Discovery
 
@@ -43,10 +44,14 @@ If they are not in `PATH`, the installer searches executable files under:
 /opt
 ```
 
-If any binary is installed somewhere outside `PATH`, pass explicit paths:
+If any binary is installed somewhere outside `PATH`, pass explicit paths. With a
+typical AmneziaVPN install this may look like:
 
 ```bash
-CK_BIN=/path/to/ck-client SS_BIN=/path/to/ss-local TUN2SOCKS_BIN=/path/to/tun2socks ./vpn.sh install
+CK_BIN=/opt/AmneziaVPN/client/bin/ck-client \
+SS_BIN=/opt/AmneziaVPN/client/bin/ss-local \
+TUN2SOCKS_BIN=/opt/AmneziaVPN/client/bin/tun2socks \
+./vpn.sh install
 ```
 
 To change the fallback search roots:
@@ -105,7 +110,18 @@ restore routes.
 ## Windows Full-Tunnel Setup
 
 Windows Shadowsocks GUI mode is a system proxy, not a full VPN. For full-device
-routing, use the PowerShell controller:
+routing, install AmneziaVPN first and use it as the source for the required
+Windows executables:
+
+```text
+C:\Program Files\AmneziaVPN\cloak\ck-client.exe
+C:\Program Files\AmneziaVPN\ss\ss-local.exe
+C:\Program Files\AmneziaVPN\xray\tun2socks.exe
+```
+
+The standalone Shadowsocks Windows GUI app is not required for full-tunnel mode.
+
+Then use the PowerShell controller:
 
 ```powershell
 .\vpn.cmd install
