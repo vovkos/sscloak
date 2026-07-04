@@ -1,0 +1,15 @@
+[Unit]
+Description=TUN routing through Shadowsocks over Cloak
+After=sscloak-client.service
+Requires=sscloak-client.service
+
+[Service]
+Type=simple
+EnvironmentFile=__SSCLOAK_DIR__/runtime.env
+ExecStartPre=__SSCLOAK_DIR__/tun-up.sh
+ExecStart=__SSCLOAK_DIR__/tun-start.sh
+ExecStopPost=__SSCLOAK_DIR__/tun-down.sh
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

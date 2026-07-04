@@ -1,0 +1,13 @@
+{
+  "BrowserSig": "chrome",
+  "EncryptionMethod": "aes-gcm",
+  "NumConn": 1,
+  "ProxyMethod": "shadowsocks",
+  "PublicKey": "<CK_PUBLIC_KEY>",
+  "RemoteHost": "<SS_HOST>",
+  "RemotePort": "8443",
+  "ServerName": "tile.openstreetmap.org",
+  "StreamTimeout": 300,
+  "Transport": "direct",
+  "UID": "<CK_UID>"
+}

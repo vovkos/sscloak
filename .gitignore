@@ -1,0 +1,20 @@
+# Local client credentials and generated install state
+sscloak/ck-client.json
+sscloak/ss-local.json
+sscloak/runtime.env
+
+# Import links and QR codes contain credentials
+shadowrocket-*.txt
+shadowrocket-*.png
+
+# Logs and temporary files
+*.log
+*.pid
+*.tmp
+tmp/
+
+# Editor/OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
