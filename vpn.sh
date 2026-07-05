@@ -549,7 +549,7 @@ configure_vpn() {
   sudo systemctl enable sscloak-client.service sscloak-tun.service
 
   echo "Configured sscloak VPN."
-  echo "Use: ./vpn.sh on | off | status | restart | run"
+  echo "Use: ./vpn.sh configure | on | off | status | restart | run"
 }
 
 start_vpn() {

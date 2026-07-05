@@ -90,6 +90,7 @@ again from the new location.
 ## Commands
 
 ```bash
+./vpn.sh configure
 ./vpn.sh on
 ./vpn.sh off
 ./vpn.sh restart
@@ -139,6 +140,51 @@ you press Ctrl-C. The background commands are:
 
 The Windows script reads the same `config-local/client.env` file as the Linux script
 and writes generated runtime files under `config-windows/`.
+
+## iPhone Setup with Shadowrocket
+
+Install Shadowrocket from the App Store. On iPhone, Shadowrocket connects
+directly to the Cloak/Shadowsocks server, so it does not use AmneziaVPN,
+`tun2socks`, or the local listener values from `config-local/client.env`.
+
+Add a new Shadowsocks server in Shadowrocket with these values:
+
+```text
+Type: Shadowsocks
+Address: SS_HOST
+Port: SS_PORT
+Method: SS_METHOD
+Password: SS_PASSWORD
+Plugin: cloak
+```
+
+Configure the Cloak plugin with the matching Cloak values:
+
+```text
+UID: CK_UID
+Public Key: CK_PUBLIC_KEY
+Server Name: CK_SERVER_NAME
+Browser Sig: CK_BROWSER_SIG
+Proxy Method: CK_PROXY_METHOD
+Encryption Method: CK_ENCRYPTION_METHOD
+Transport: CK_TRANSPORT
+Stream Timeout: CK_STREAM_TIMEOUT
+Num Conn: CK_NUM_CONN
+```
+
+Use the same values that are in `config-local/client.env`. The local listener
+settings below are desktop-only and should not be entered in Shadowrocket:
+
+```text
+SS_LOCAL_SERVER
+SS_LOCAL_SERVER_PORT
+SS_LOCAL_ADDRESS
+SS_LOCAL_PORT
+TUN_*
+```
+
+After saving the server, select it in Shadowrocket and enable the VPN switch.
+Use Global Routing if you want all iPhone traffic through the tunnel.
 
 ## Config Files
 
