@@ -15,7 +15,7 @@ Linux apps
   -> ck-client
   -> Cloak server
   -> Shadowsocks server
-  -> internet
+  -> Internet
 ```
 
 Windows full-tunnel mode:
@@ -28,7 +28,7 @@ Windows apps
   -> ck-client
   -> Cloak server
   -> Shadowsocks server
-  -> internet
+  -> Internet
 ```
 
 iPhone with Shadowrocket:
@@ -40,7 +40,7 @@ iPhone apps
   -> Shadowrocket Cloak plugin
   -> Cloak server
   -> Shadowsocks server
-  -> internet
+  -> Internet
 ```
 
 ## Client Values
@@ -248,7 +248,7 @@ Do not edit the generated runtime files directly. Change
 All clients ultimately use the same server-side path:
 
 ```text
-client Cloak transport -> Cloak server -> Shadowsocks server -> internet
+client Cloak transport -> Cloak server -> Shadowsocks server -> Internet
 ```
 
 It intentionally does not use Xray.
