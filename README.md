@@ -1,24 +1,72 @@
 ﻿# Shadowsocks over Cloak VPN Client
 
-This directory contains a Linux client setup for routing traffic through:
+This directory contains client setup notes and scripts for Linux, Windows, and
+iPhone.
+
+## Traffic Paths
+
+Linux full-tunnel mode:
 
 ```text
-local apps -> tun2socks -> ss-local -> ck-client -> Cloak/Shadowsocks server
+Linux apps
+  -> TUN routes
+  -> tun2socks
+  -> ss-local
+  -> ck-client
+  -> Cloak server
+  -> Shadowsocks server
+  -> internet
 ```
 
-## Dependency
+Windows full-tunnel mode:
 
-Install AmneziaVPN on the client machine. This setup uses the binaries bundled
-with it:
+```text
+Windows apps
+  -> split default routes
+  -> tun2socks TUN adapter
+  -> ss-local
+  -> ck-client
+  -> Cloak server
+  -> Shadowsocks server
+  -> internet
+```
+
+iPhone with Shadowrocket:
+
+```text
+iPhone apps
+  -> iOS VPN profile
+  -> Shadowrocket Shadowsocks client
+  -> Shadowrocket Cloak plugin
+  -> Cloak server
+  -> Shadowsocks server
+  -> internet
+```
+
+## Client Values
+
+Create the single local client values file:
+
+```bash
+cp config-local/client.example.env config-local/client.env
+```
+
+Edit `config-local/client.env` with your server host, Cloak UID/public key, and
+Shadowsocks password. Linux and Windows scripts read this same file. iPhone
+setup uses the same values entered manually in Shadowrocket.
+
+The real `config-local/client.env`, generated desktop runtime files, and
+Shadowrocket import files under `config-local/` are ignored by git because they
+contain credentials.
+
+## Linux Full-Tunnel Setup
+
+Install AmneziaVPN on the Linux client machine. This setup uses the binaries
+bundled with it:
 
 - `ck-client`, the Cloak client
 - `ss-local`, the Shadowsocks local client
 - `tun2socks`, for routing the TUN interface into the local SOCKS proxy
-
-If you provide compatible binaries another way, set explicit paths as shown
-below.
-
-## Binary Discovery
 
 `./vpn.sh install` looks for these command names in `PATH`:
 
@@ -53,41 +101,24 @@ To change the fallback search roots:
 BIN_SEARCH_DIRS=/opt:/srv/tools ./vpn.sh install
 ```
 
-The installer stores the resolved binary paths in `config-linux/runtime.env`.
-
-## Setup
-
-Create the single local client values file:
-
-```bash
-cp config-local/client.example.env config-local/client.env
-```
-
-Edit `config-local/client.env` with your server host, Cloak UID/public key, and
-Shadowsocks password. `./vpn.sh install` and `./vpn.sh on` generate the
-runtime files in `config-linux/ck-client.json` and `config-linux/ss-local.json` from that
-single source.
-
-The real `config-local/client.env`, generated `config-linux/*.json` files, and
-Shadowrocket import files under `config-local/` are ignored by git because they
-contain credentials.
-
-From this directory:
+From this directory, install the generated runtime files, systemd units, and
+system sleep hook:
 
 ```bash
 ./vpn.sh install
 ```
 
-This installs systemd units and a system sleep hook. The generated units point
-at the current directory, so if you move this folder later, run:
+The generated units point at the current directory, so if you move this folder
+later, run:
 
 ```bash
 ./vpn.sh install
 ```
 
-again from the new location.
+again from the new location. The installer stores resolved binary paths in
+`config-linux/runtime.env` and generated client configs in `config-linux/`.
 
-## Commands
+Linux commands:
 
 ```bash
 ./vpn.sh install
@@ -104,8 +135,8 @@ restore routes.
 ## Windows Full-Tunnel Setup
 
 Windows Shadowsocks GUI mode is a system proxy, not a full VPN. For full-device
-routing, install AmneziaVPN first and use it as the source for the required
-Windows executables:
+routing, install AmneziaVPN on the Windows client machine. This setup uses
+these bundled executables by default:
 
 ```text
 C:\Program Files\AmneziaVPN\cloak\ck-client.exe
@@ -114,14 +145,16 @@ C:\Program Files\AmneziaVPN\xray\tun2socks.exe
 ```
 
 The standalone Shadowsocks Windows GUI app is not required for full-tunnel mode.
+If any binary is installed somewhere else, set `CK_BIN`, `SS_BIN`, or
+`TUN2SOCKS_BIN` to the full executable path.
 
-Then use the PowerShell controller:
+From this directory, generate Windows runtime files:
 
 ```powershell
 .\vpn.cmd install
 ```
 
-Then start an elevated PowerShell from this directory:
+Then start an elevated PowerShell from this directory and run:
 
 ```powershell
 .\vpn.cmd run
@@ -129,17 +162,18 @@ Then start an elevated PowerShell from this directory:
 
 `run` starts `ck-client`, `ss-local`, and `tun2socks`, creates a TUN adapter
 named `sscloak`, adds split default routes through it, and restores routes when
-you press Ctrl-C. The background commands are:
+you press Ctrl-C. Windows commands:
 
 ```powershell
+.\vpn.cmd install
 .\vpn.cmd on
 .\vpn.cmd off
 .\vpn.cmd status
 .\vpn.cmd restart
+.\vpn.cmd run
 ```
 
-The Windows script reads the same `config-local/client.env` file as the Linux script
-and writes generated runtime files under `config-windows/`.
+The Windows script writes generated runtime files under `config-windows/`.
 
 ## iPhone Setup with Shadowrocket
 
@@ -194,22 +228,27 @@ Client secrets live in one file:
 config-local/client.env
 ```
 
-Generated runtime config lives in:
+Generated desktop runtime config lives in:
 
 ```text
 config-linux/ck-client.json
 config-linux/ss-local.json
+config-linux/runtime.env
+config-windows/ck-client.json
+config-windows/ss-local.json
+config-windows/runtime.json
 ```
 
-Do not edit the generated JSON files directly. Change `config-local/client.env`, then
-run `./vpn.sh install` or `./vpn.sh on`.
+Do not edit the generated runtime files directly. Change
+`config-local/client.env`, then rerun `./vpn.sh install`, `./vpn.sh on`, or
+`.\vpn.cmd install`.
 
 ## Server Setup
 
-This setup uses:
+All clients ultimately use the same server-side path:
 
 ```text
-client -> Shadowsocks local -> Cloak client -> server Cloak endpoint -> Shadowsocks server -> internet
+client Cloak transport -> Cloak server -> Shadowsocks server -> internet
 ```
 
 It intentionally does not use Xray.
