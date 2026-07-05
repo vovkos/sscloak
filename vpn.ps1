@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('install', 'on', 'off', 'restart', 'status', 'run', 'debug', 'help')]
+    [ValidateSet('configure', 'on', 'off', 'restart', 'status', 'run', 'debug', 'help')]
     [string]$Command = 'help'
 )
 
@@ -33,7 +33,7 @@ function Show-Usage {
 Usage: .\vpn.cmd <command>
 
 Commands:
-  install   Detect binaries and generate Windows runtime config
+  configure Detect binaries and generate Windows runtime config
   on        Start full VPN in the background
   off       Stop VPN and restore routes
   restart   Stop, clean, and start again
@@ -139,7 +139,7 @@ function Find-Binary {
         if ($cmd) { return $cmd.Source }
     }
 
-    throw "Could not find $EnvName. Set $EnvName to the executable path and run install again."
+    throw "Could not find $EnvName. Set $EnvName to the executable path and run configure again."
 }
 
 function Resolve-RemoteIp {
@@ -496,8 +496,8 @@ function Show-Status {
 }
 
 switch ($Command) {
-    'install' {
-        Write-Step "Install starting"
+    'configure' {
+        Write-Step "Configure starting"
         $runtime = Write-Configs
         Write-Host "Windows runtime written to $RuntimeDir"
         Write-Host "ck-client: $($runtime.CK_BIN)"
