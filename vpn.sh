@@ -12,7 +12,7 @@ usage() {
 Usage: ./vpn.sh <command>
 
 Commands:
-  configure Configure runtime files, systemd services, and resume hook
+  install   Install/update systemd services, resume hook, and runtime config
   on        Start VPN through Shadowsocks over Cloak
   off       Stop VPN and restore routes
   restart   Stop, clean, and start again
@@ -395,7 +395,7 @@ tun_up() {
   fi
 
   if [[ -z "$vps_ip" ]]; then
-    echo "VPS_IP is not set. Run ./vpn.sh configure, or set VPS_IP explicitly." >&2
+    echo "VPS_IP is not set. Run ./vpn.sh install, or set VPS_IP explicitly." >&2
     exit 1
   fi
 
@@ -535,7 +535,7 @@ sleep_hook() {
   esac
 }
 
-configure_vpn() {
+install_vpn() {
   local run_user
   run_user="${SUDO_USER:-$(id -un)}"
 
@@ -548,14 +548,14 @@ configure_vpn() {
   sudo systemctl daemon-reload
   sudo systemctl enable sscloak-client.service sscloak-tun.service
 
-  echo "Configured sscloak VPN."
-  echo "Use: ./vpn.sh configure | on | off | status | restart | run"
+  echo "Installed sscloak VPN."
+  echo "Use: ./vpn.sh install | on | off | status | restart | run"
 }
 
 start_vpn() {
   if [[ ! -f "$SSCLOAK_DIR/runtime.env" ]]; then
-    echo "Missing $SSCLOAK_DIR/runtime.env; running configure first."
-    configure_vpn
+    echo "Missing $SSCLOAK_DIR/runtime.env; running install first."
+    install_vpn
   else
     write_client_configs
     write_runtime_env
@@ -594,7 +594,7 @@ status_vpn() {
   if [[ -n "$vps_ip" ]]; then
     ip -4 route get "$vps_ip" || true
   else
-    echo "Could not determine server IP; set VPS_IP and run ./vpn.sh configure."
+    echo "Could not determine server IP; set VPS_IP and run ./vpn.sh install."
   fi
   ip -4 route get 8.8.8.8 || true
 
@@ -658,7 +658,7 @@ cmd="${1:-}"
 shift || true
 
 case "$cmd" in
-  configure) configure_vpn "$@" ;;
+  install) install_vpn "$@" ;;
   on) start_vpn "$@" ;;
   off) stop_vpn "$@" ;;
   status) status_vpn "$@" ;;

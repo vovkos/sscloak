@@ -20,7 +20,7 @@ below.
 
 ## Binary Discovery
 
-`./vpn.sh configure` looks for these command names in `PATH`:
+`./vpn.sh install` looks for these command names in `PATH`:
 
 ```text
 ck-client
@@ -28,7 +28,7 @@ ss-local
 tun2socks
 ```
 
-If they are not in `PATH`, the configurator searches executable files under:
+If they are not in `PATH`, the installer searches executable files under:
 
 ```text
 /usr/local/bin
@@ -44,16 +44,16 @@ typical AmneziaVPN install this may look like:
 CK_BIN=/opt/AmneziaVPN/client/bin/ck-client \
 SS_BIN=/opt/AmneziaVPN/client/bin/ss-local \
 TUN2SOCKS_BIN=/opt/AmneziaVPN/client/bin/tun2socks \
-./vpn.sh configure
+./vpn.sh install
 ```
 
 To change the fallback search roots:
 
 ```bash
-BIN_SEARCH_DIRS=/opt:/srv/tools ./vpn.sh configure
+BIN_SEARCH_DIRS=/opt:/srv/tools ./vpn.sh install
 ```
 
-The configurator stores the resolved binary paths in `config-linux/runtime.env`.
+The installer stores the resolved binary paths in `config-linux/runtime.env`.
 
 ## Setup
 
@@ -64,7 +64,7 @@ cp config-local/client.example.env config-local/client.env
 ```
 
 Edit `config-local/client.env` with your server host, Cloak UID/public key, and
-Shadowsocks password. `./vpn.sh configure` and `./vpn.sh on` generate the
+Shadowsocks password. `./vpn.sh install` and `./vpn.sh on` generate the
 runtime files in `config-linux/ck-client.json` and `config-linux/ss-local.json` from that
 single source.
 
@@ -75,14 +75,14 @@ contain credentials.
 From this directory:
 
 ```bash
-./vpn.sh configure
+./vpn.sh install
 ```
 
-This configures systemd units and a system sleep hook. The generated units point
+This installs systemd units and a system sleep hook. The generated units point
 at the current directory, so if you move this folder later, run:
 
 ```bash
-./vpn.sh configure
+./vpn.sh install
 ```
 
 again from the new location.
@@ -90,7 +90,7 @@ again from the new location.
 ## Commands
 
 ```bash
-./vpn.sh configure
+./vpn.sh install
 ./vpn.sh on
 ./vpn.sh off
 ./vpn.sh restart
@@ -118,7 +118,7 @@ The standalone Shadowsocks Windows GUI app is not required for full-tunnel mode.
 Then use the PowerShell controller:
 
 ```powershell
-.\vpn.cmd configure
+.\vpn.cmd install
 ```
 
 Then start an elevated PowerShell from this directory:
@@ -202,7 +202,7 @@ config-linux/ss-local.json
 ```
 
 Do not edit the generated JSON files directly. Change `config-local/client.env`, then
-run `./vpn.sh configure` or `./vpn.sh on`.
+run `./vpn.sh install` or `./vpn.sh on`.
 
 ## Server Setup
 
