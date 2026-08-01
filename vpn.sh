@@ -427,6 +427,17 @@ tun_up() {
   ip addr add "$tun_addr" dev "$tun_dev"
   ip link set "$tun_dev" mtu 1500 up
 
+  # Sourcing the state file defines ORIG_GW/ORIG_DEV; the freshly-detected
+  # path only sets the lowercase locals, so bridge them or the route commands
+  # below die under `set -u`.
+  ORIG_GW="${ORIG_GW:-${orig_gw:-}}"
+  ORIG_DEV="${ORIG_DEV:-${orig_dev:-}}"
+
+  if [[ -z "$ORIG_GW" || -z "$ORIG_DEV" ]]; then
+    echo "No usable default route (state file: $state_file)" >&2
+    exit 1
+  fi
+
   ip route replace "$vps_ip/32" via "$ORIG_GW" dev "$ORIG_DEV"
 
   while read -r route; do
