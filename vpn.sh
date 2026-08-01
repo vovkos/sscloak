@@ -468,7 +468,10 @@ tun_start() {
   socks_addr="${SOCKS_ADDR:-127.0.0.1:10810}"
   tun2socks_bin="$(detect_bin TUN2SOCKS_BIN tun2socks)"
 
-  exec "$tun2socks_bin" -device "tun://$tun_dev" -proxy "socks5://$socks_addr" -loglevel info
+  # Long-form flags: Amnezia's build uses Go's stdlib flag package (accepts one
+  # or two dashes), but the standalone xjasonlyu build uses pflag, where a
+  # single dash means shorthand and -loglevel is rejected outright.
+  exec "$tun2socks_bin" --device "tun://$tun_dev" --proxy "socks5://$socks_addr" --loglevel info
 }
 
 tun_down() {
