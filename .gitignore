@@ -1,15 +1,11 @@
-# Local client credentials and generated install state
-config-local/client.env
-config-local/shadowrocket-*.txt
-config-local/shadowrocket-*.png
-config-linux/ck-client.json
-config-linux/ss-local.json
-config-linux/runtime.env
-config-windows/ck-client.json
-config-windows/ss-local.json
-config-windows/runtime.json
-config-windows/state.json
-config-windows/logs/
+# Local client credentials -- secret, shared out of band.
+# Everything under config-local/ is ignored except the checked-in example.
+config-local/*
+!config-local/client.example.env
+
+# Generated at install time; never hand-edited, never committed.
+config-linux/
+config-windows/
 sscloak-windows/
 
 # Import links and QR codes contain credentials
