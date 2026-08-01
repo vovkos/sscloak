@@ -249,6 +249,8 @@ EOF
 Description=TUN routing through Shadowsocks over Cloak
 After=sscloak-client.service
 Requires=sscloak-client.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -257,6 +259,9 @@ ExecStartPre=$APP_DIR/vpn.sh __tun-up
 ExecStart=$APP_DIR/vpn.sh __tun-start
 ExecStopPost=$APP_DIR/vpn.sh __tun-down
 Restart=on-failure
+# Without a delay the default 5-starts-in-10s limit trips instantly and
+# systemd gives up for good; 3s spaces retries past that window.
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
