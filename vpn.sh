@@ -471,7 +471,9 @@ tun_start() {
   # Long-form flags: Amnezia's build uses Go's stdlib flag package (accepts one
   # or two dashes), but the standalone xjasonlyu build uses pflag, where a
   # single dash means shorthand and -loglevel is rejected outright.
-  exec "$tun2socks_bin" --device "tun://$tun_dev" --proxy "socks5://$socks_addr" --loglevel info
+  # warn, not info: info logs one line per TCP/UDP connection, which on an
+  # SD-card host backs up journald until block I/O stalls the whole box.
+  exec "$tun2socks_bin" --device "tun://$tun_dev" --proxy "socks5://$socks_addr" --loglevel "${TUN2SOCKS_LOGLEVEL:-warn}"
 }
 
 tun_down() {
