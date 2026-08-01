@@ -419,9 +419,10 @@ function Set-TunRoutes {
     param($Runtime)
 
     $route = Get-PhysicalDefaultRoute -Runtime $Runtime
-    Write-Step "Adding bypass route for $($Runtime.REMOTE_IP) via $($route.NextHop)"
-    New-NetRoute -DestinationPrefix "$($Runtime.REMOTE_IP)/32" -InterfaceIndex $route.ifIndex -NextHop $route.NextHop -RouteMetric 1 -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Out-Null
 
+    # Resolve the DNS policy before touching any routes. Both branches below can
+    # throw, and Stop-Vpn only removes routes it finds recorded in the state
+    # file -- so mutating first would strand them with nothing to clean them up.
     $dnsServers = @()
     $dnsBypassServers = @()
     switch ($Runtime.TUN_DNS_MODE) {
@@ -435,11 +436,15 @@ function Set-TunRoutes {
         default { throw "Invalid TUN_DNS_MODE '$($Runtime.TUN_DNS_MODE)'; expected physical, tunnel, or none." }
     }
 
+    Save-State -Runtime $Runtime -Route $route -DnsBypassServers $dnsBypassServers
+
+    Write-Step "Adding bypass route for $($Runtime.REMOTE_IP) via $($route.NextHop)"
+    New-NetRoute -DestinationPrefix "$($Runtime.REMOTE_IP)/32" -InterfaceIndex $route.ifIndex -NextHop $route.NextHop -RouteMetric 1 -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Out-Null
+
     foreach ($dnsServer in $dnsBypassServers) {
         Write-Step "Adding DNS bypass route for $dnsServer via $($route.InterfaceAlias)"
         New-NetRoute -DestinationPrefix "$dnsServer/32" -InterfaceIndex $route.ifIndex -NextHop $route.NextHop -RouteMetric 1 -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Out-Null
     }
-    Save-State -Runtime $Runtime -Route $route -DnsBypassServers $dnsBypassServers
 
     Start-Tun2Socks -Runtime $Runtime
     $adapter = Wait-TunAdapter -Runtime $Runtime
