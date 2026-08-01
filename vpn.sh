@@ -140,6 +140,13 @@ EOF
   "timeout": $SS_TIMEOUT
 }
 EOF
+
+  # Written 0600 as the invoking user; under sudo (./vpn.sh run, or a sudo'd
+  # install) that is root, but the client unit runs as $SUDO_USER and refuses
+  # to run as root -- so hand the configs over or it cannot read them.
+  if (( EUID == 0 )); then
+    chown -R "${SUDO_USER:-root}" "$SSCLOAK_DIR"
+  fi
 }
 
 write_runtime_env() {
