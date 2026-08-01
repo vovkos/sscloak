@@ -164,6 +164,12 @@ Then start an elevated PowerShell from this directory and run:
 named `sscloak`, adds split default routes through it, and restores routes when
 you press Ctrl-C. Windows commands:
 
+By default, Windows uses `TUN_DNS_MODE=tunnel`: a second Cloak client carries
+UDP through the server's `ssudp` method, and `ss-local -u` provides
+SOCKS5 UDP relay. DNS therefore resolves from the VPN server rather than the
+local network. `physical` bypasses the tunnel through the active adapter;
+`none` leaves the TUN adapter without configured DNS servers.
+
 ```powershell
 .\vpn.cmd install
 .\vpn.cmd on

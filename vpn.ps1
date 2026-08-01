@@ -12,6 +12,7 @@ $ClientEnv = Join-Path $LocalDir 'client.env'
 $RuntimeDir = Join-Path $AppDir 'config-windows'
 $RuntimeEnv = Join-Path $RuntimeDir 'runtime.json'
 $CkConfig = Join-Path $RuntimeDir 'ck-client.json'
+$CkUdpConfig = Join-Path $RuntimeDir 'ck-client-udp.json'
 $SsConfig = Join-Path $RuntimeDir 'ss-local.json'
 $StateFile = Join-Path $RuntimeDir 'state.json'
 $LogDir = Join-Path $RuntimeDir 'logs'
@@ -100,7 +101,7 @@ function Read-ClientEnv {
         CK_ENCRYPTION_METHOD = 'aes-gcm'
         CK_TRANSPORT = 'direct'
         CK_STREAM_TIMEOUT = '300'
-        CK_NUM_CONN = '1'
+        CK_NUM_CONN = '4'
         SS_LOCAL_SERVER = '127.0.0.1'
         SS_LOCAL_SERVER_PORT = '16789'
         SS_LOCAL_ADDRESS = '127.0.0.1'
@@ -109,6 +110,7 @@ function Read-ClientEnv {
         TUN_NAME = 'sscloak'
         TUN_ADDR = '198.19.0.1'
         TUN_PREFIX = '15'
+        TUN_DNS_MODE = 'tunnel'
         TUN_DNS = '1.1.1.1,8.8.8.8'
     }
 
@@ -172,6 +174,11 @@ function Write-Configs {
         UID = $env.CK_UID
     }
 
+    $ckUdp = [ordered]@{}
+    foreach ($item in $ck.GetEnumerator()) { $ckUdp[$item.Key] = $item.Value }
+    # Cloak's on-wire proxy method field is limited to 12 bytes.
+    $ckUdp.ProxyMethod = 'ssudp'
+
     $ss = [ordered]@{
         server = $env.SS_LOCAL_SERVER
         server_port = [int]$env.SS_LOCAL_SERVER_PORT
@@ -205,10 +212,12 @@ function Write-Configs {
         TUN_NAME = $env.TUN_NAME
         TUN_ADDR = $env.TUN_ADDR
         TUN_PREFIX = [int]$env.TUN_PREFIX
+        TUN_DNS_MODE = $env.TUN_DNS_MODE.ToLowerInvariant()
         TUN_DNS = @($env.TUN_DNS -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     }
 
     Write-Utf8NoBom -Path $CkConfig -Value (($ck | ConvertTo-Json -Depth 10) + [Environment]::NewLine)
+    Write-Utf8NoBom -Path $CkUdpConfig -Value (($ckUdp | ConvertTo-Json -Depth 10) + [Environment]::NewLine)
     Write-Utf8NoBom -Path $SsConfig -Value (($ss | ConvertTo-Json -Depth 10) + [Environment]::NewLine)
     Write-Utf8NoBom -Path $RuntimeEnv -Value (($runtime | ConvertTo-Json -Depth 10) + [Environment]::NewLine)
     $runtime
@@ -295,12 +304,32 @@ function Start-LocalProxy {
         throw "ck-client did not stay running. $tail"
     }
 
+    Write-Step "Starting Cloak UDP listener on 127.0.0.1:$($Runtime.CK_LISTEN_PORT)"
+    $ckUdpExisting = Get-ProcessByPathAndArgs -Name 'ck-client.exe' -Path $Runtime.CK_BIN -ArgLike "*$CkUdpConfig*"
+    if (-not $ckUdpExisting) {
+        Remove-Item (Join-Path $LogDir 'ck-client-udp.out.log'), (Join-Path $LogDir 'ck-client-udp.err.log') -ErrorAction SilentlyContinue
+        Start-Process -FilePath $Runtime.CK_BIN `
+            -ArgumentList @('-u', '-c', $CkUdpConfig, '-l', "$($Runtime.CK_LISTEN_PORT)") `
+            -WorkingDirectory (Split-Path -Parent $Runtime.CK_BIN) `
+            -RedirectStandardOutput (Join-Path $LogDir 'ck-client-udp.out.log') `
+            -RedirectStandardError (Join-Path $LogDir 'ck-client-udp.err.log') `
+            -WindowStyle Hidden | Out-Null
+        Start-Sleep -Seconds 2
+    }
+
+    $ckUdpRunning = Get-ProcessByPathAndArgs -Name 'ck-client.exe' -Path $Runtime.CK_BIN -ArgLike "*$CkUdpConfig*"
+    if (-not $ckUdpRunning) {
+        $ckUdpLog = Join-Path $LogDir 'ck-client-udp.err.log'
+        $tail = if (Test-Path -LiteralPath $ckUdpLog) { (Get-Content -Tail 20 -LiteralPath $ckUdpLog) -join [Environment]::NewLine } else { '' }
+        throw "UDP ck-client did not stay running. $tail"
+    }
+
     Write-Step "Starting ss-local SOCKS listener on 127.0.0.1:$($Runtime.SOCKS_PORT)"
     $ssExisting = Get-ProcessByPathAndArgs -Name 'ss-local.exe' -Path $Runtime.SS_BIN -ArgLike "*$SsConfig*"
     if (-not $ssExisting) {
         Remove-Item (Join-Path $LogDir 'ss-local.out.log'), (Join-Path $LogDir 'ss-local.err.log') -ErrorAction SilentlyContinue
         Start-Process -FilePath $Runtime.SS_BIN `
-            -ArgumentList @('-c', $SsConfig) `
+            -ArgumentList @('-c', $SsConfig, '-u') `
             -WorkingDirectory (Split-Path -Parent $Runtime.SS_BIN) `
             -RedirectStandardOutput (Join-Path $LogDir 'ss-local.out.log') `
             -RedirectStandardError (Join-Path $LogDir 'ss-local.err.log') `
@@ -334,7 +363,7 @@ function Get-PhysicalDefaultRoute {
 }
 
 function Save-State {
-    param($Runtime, $Route)
+    param($Runtime, $Route, [string[]]$DnsBypassServers = @())
     Write-Step "Saving route state"
     $state = [ordered]@{
         CreatedAt = (Get-Date).ToString('o')
@@ -343,8 +372,18 @@ function Save-State {
         DefaultNextHop = $Route.NextHop
         RemoteIp = $Runtime.REMOTE_IP
         TunName = $Runtime.TUN_NAME
+        DnsBypassServers = @($DnsBypassServers)
     }
     $state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $StateFile -Encoding UTF8
+}
+
+function Get-PhysicalDnsServers {
+    param($Route)
+
+    @(Get-DnsClientServerAddress -InterfaceIndex $Route.ifIndex -AddressFamily IPv4 -ErrorAction Stop |
+        Select-Object -ExpandProperty ServerAddresses |
+        Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' } |
+        Select-Object -Unique)
 }
 
 function Start-Tun2Socks {
@@ -380,10 +419,27 @@ function Set-TunRoutes {
     param($Runtime)
 
     $route = Get-PhysicalDefaultRoute -Runtime $Runtime
-    Save-State -Runtime $Runtime -Route $route
-
     Write-Step "Adding bypass route for $($Runtime.REMOTE_IP) via $($route.NextHop)"
     New-NetRoute -DestinationPrefix "$($Runtime.REMOTE_IP)/32" -InterfaceIndex $route.ifIndex -NextHop $route.NextHop -RouteMetric 1 -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Out-Null
+
+    $dnsServers = @()
+    $dnsBypassServers = @()
+    switch ($Runtime.TUN_DNS_MODE) {
+        'physical' {
+            $dnsServers = @(Get-PhysicalDnsServers -Route $route)
+            if ($dnsServers.Count -eq 0) { throw "No IPv4 DNS server found on physical adapter $($route.InterfaceAlias)." }
+            $dnsBypassServers = @($dnsServers)
+        }
+        'tunnel' { $dnsServers = @($Runtime.TUN_DNS) }
+        'none' { $dnsServers = @() }
+        default { throw "Invalid TUN_DNS_MODE '$($Runtime.TUN_DNS_MODE)'; expected physical, tunnel, or none." }
+    }
+
+    foreach ($dnsServer in $dnsBypassServers) {
+        Write-Step "Adding DNS bypass route for $dnsServer via $($route.InterfaceAlias)"
+        New-NetRoute -DestinationPrefix "$dnsServer/32" -InterfaceIndex $route.ifIndex -NextHop $route.NextHop -RouteMetric 1 -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Out-Null
+    }
+    Save-State -Runtime $Runtime -Route $route -DnsBypassServers $dnsBypassServers
 
     Start-Tun2Socks -Runtime $Runtime
     $adapter = Wait-TunAdapter -Runtime $Runtime
@@ -396,8 +452,9 @@ function Set-TunRoutes {
 
     New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $Runtime.TUN_ADDR -PrefixLength $Runtime.TUN_PREFIX -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Out-Null
 
-    if ($Runtime.TUN_DNS.Count -gt 0) {
-        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $Runtime.TUN_DNS -ErrorAction SilentlyContinue
+    if ($dnsServers.Count -gt 0) {
+        Write-Step "Pointing $($adapter.Name) DNS at $($dnsServers -join ', ') (mode: $($Runtime.TUN_DNS_MODE))"
+        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dnsServers -ErrorAction Stop
     }
 
     foreach ($prefix in @('0.0.0.0/1', '128.0.0.0/1')) {
@@ -438,7 +495,17 @@ function Stop-Vpn {
             Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue
     }
 
+
+    if ($state -and $state.DnsBypassServers) {
+        foreach ($dnsServer in @($state.DnsBypassServers)) {
+            Get-NetRoute -DestinationPrefix "$dnsServer/32" -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Where-Object { $_.InterfaceIndex -eq [int]$state.DefaultIfIndex } |
+                Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue
+        }
+    }
+
     Stop-ProcessByPathAndArgs -Name 'ss-local.exe' -Path $runtime.SS_BIN -ArgLike "*$SsConfig*"
+    Stop-ProcessByPathAndArgs -Name 'ck-client.exe' -Path $runtime.CK_BIN -ArgLike "*$CkUdpConfig*"
     Stop-ProcessByPathAndArgs -Name 'ck-client.exe' -Path $runtime.CK_BIN -ArgLike "*$CkConfig*"
 
     Remove-Item -LiteralPath $StateFile -ErrorAction SilentlyContinue
@@ -458,11 +525,17 @@ function Start-Vpn {
     $runtime = Write-Configs
     Write-Step "Cleaning stale Windows VPN state"
     Stop-Vpn
-    Write-Step "Starting local proxy chain"
-    Start-LocalProxy -Runtime $runtime
-    Write-Step "Configuring full-tunnel routes"
-    Set-TunRoutes -Runtime $runtime
-    Write-Step "Full-tunnel setup completed"
+    try {
+        Write-Step "Starting local proxy chain"
+        Start-LocalProxy -Runtime $runtime
+        Write-Step "Configuring full-tunnel routes"
+        Set-TunRoutes -Runtime $runtime
+        Write-Step "Full-tunnel setup completed"
+    } catch {
+        Write-Step "VPN startup failed; restoring routes and stopping components"
+        Stop-Vpn
+        throw
+    }
 }
 
 function Show-Status {
@@ -539,6 +612,7 @@ switch ($Command) {
         Write-Host "Remote: $($runtime.REMOTE_HOST) / $($runtime.REMOTE_IP):$($runtime.REMOTE_PORT)"
         Write-Host "SOCKS: $($runtime.SOCKS_HOST):$($runtime.SOCKS_PORT)"
         Write-Host "TUN: $($runtime.TUN_NAME) $($runtime.TUN_ADDR)/$($runtime.TUN_PREFIX)"
+        Write-Host "DNS mode: $($runtime.TUN_DNS_MODE)"
     }
     'run' {
         Write-Step "Run command entered"
