@@ -1,4 +1,4 @@
-﻿# Shadowsocks over Cloak VPN
+# Shadowsocks over Cloak VPN
 
 Setup notes and scripts for the Ubuntu server and for the iPhone, Windows, and
 Linux clients.

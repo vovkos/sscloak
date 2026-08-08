@@ -1,22 +1,21 @@
-﻿# Shadowsocks поверх Cloak — VPN
+# VPN: Shadowsocks поверх Cloak
 
-Перевод [README.md](README.md).
+Русская версия [README.md](README.md).
 
-Инструкции и скрипты для сервера на Ubuntu и для клиентов на iPhone, Windows и
-Linux.
+Как поднять сервер на Ubuntu и настроить клиентов на iPhone, Windows и Linux.
 
-Все клиенты в итоге используют один и тот же путь на стороне сервера:
+На стороне сервера путь у всех клиентов один и тот же:
 
 ```text
-клиент, транспорт Cloak -> сервер Cloak -> сервер Shadowsocks -> интернет
+транспорт Cloak на клиенте -> сервер Cloak -> сервер Shadowsocks -> интернет
 ```
 
-## Схема трафика
+## Как идёт трафик
 
 iPhone с Shadowrocket:
 
 ```text
-приложения iPhone
+приложения на iPhone
   -> VPN-профиль iOS
   -> клиент Shadowsocks в Shadowrocket
   -> плагин Cloak в Shadowrocket
@@ -25,11 +24,11 @@ iPhone с Shadowrocket:
   -> интернет
 ```
 
-Windows, режим полного туннеля:
+Windows, полный туннель:
 
 ```text
 приложения Windows
-  -> разделённые маршруты по умолчанию
+  -> две половины default-маршрута
   -> TUN-адаптер tun2socks
   -> ss-local
   -> ck-client
@@ -38,11 +37,11 @@ Windows, режим полного туннеля:
   -> интернет
 ```
 
-Linux, режим полного туннеля:
+Linux, полный туннель:
 
 ```text
 приложения Linux
-  -> маршруты через TUN
+  -> маршруты в TUN
   -> tun2socks
   -> ss-local
   -> ck-client
@@ -51,28 +50,28 @@ Linux, режим полного туннеля:
   -> интернет
 ```
 
-## Установка сервера
+## Сервер
 
-Сервер — это два статических бинарника под systemd: `ck-server` из Cloak и
-`ssserver` из shadowsocks-rust. Здесь сознательно не используются ни Xray, ни
-Docker, ни контейнерные образы AmneziaVPN.
+Весь сервер — это два бинарника под systemd: `ck-server` из Cloak и `ssserver`
+из shadowsocks-rust. Ни Xray, ни Docker, ни образы AmneziaVPN здесь намеренно не
+используются.
 
-### Автоматическая установка
+### Установка скриптом
 
-`install-sscloak-server.sh` делает всё, что описано в этом разделе, на чистом
-Ubuntu и в конце печатает QR-код для Shadowrocket:
+`install-sscloak-server.sh` проделывает всё, что описано ниже, на чистой Ubuntu
+и в конце показывает QR-код для Shadowrocket:
 
 ```bash
 scp install-sscloak-server.sh user@server:~/
 ssh user@server 'bash ~/install-sscloak-server.sh'
 ```
 
-Скрипт один раз спрашивает пароль sudo, ставит бинарники, генерирует учётные
-данные, пишет `/opt/sscloak-<порт>/`, включает systemd-юниты, открывает порт в
-`ufw`, проверяет туннель одноразовым локальным клиентом и кладёт рядом с собой
-`shadowrocket-sscloak-<порт>.png` и `.txt` со ссылкой `ss://`.
+Пароль sudo он спросит один раз. Дальше сам поставит бинарники, сгенерирует
+ключи и пароль, создаст `/opt/sscloak-<порт>/`, включит systemd-юниты, откроет
+порт в `ufw`, проверит туннель одноразовым локальным клиентом и положит рядом с
+собой `shadowrocket-sscloak-<порт>.png` и `.txt` со ссылкой `ss://`.
 
-Необязательные переменные окружения:
+Переменные окружения, все необязательные:
 
 ```bash
 SS_HOST=vpn.example.com SS_PORT=443 bash install-sscloak-server.sh
@@ -82,19 +81,19 @@ SKIP_SELFTEST=1 bash install-sscloak-server.sh   # без проверки ту�
 CLOAK_VERSION=v2.12.0 SSRUST_VERSION=v1.24.0 bash install-sscloak-server.sh
 ```
 
-Повторный запуск безопасен: для уже настроенного порта ключи по умолчанию
-сохраняются, перезаписываются только конфиги, юниты и QR-код. После самопроверки
-на сервере остаются `ck-client` и `sslocal` в `/usr/local/bin` — удалите их, если
-хотите оставить хост чистым.
+Запускать повторно безопасно: если порт уже настроен, ключи остаются прежними,
+перезаписываются только конфиги, юниты и QR-код. После самопроверки в
+`/usr/local/bin` остаются `ck-client` и `sslocal` — если не хотите держать на
+сервере лишнее, удалите.
 
-Всё остальное в этом разделе — та же установка вручную.
+Дальше в этом разделе — то же самое руками.
 
-### Значения сервера
+### Параметры сервера
 
-Используйте эти обозначения единообразно:
+Дальше по тексту встречаются такие имена:
 
 ```text
-SS_HOST=<имя хоста или IP сервера>
+SS_HOST=<домен или IP сервера>
 SS_PORT=<публичный порт Cloak, обычно 443>
 SS_METHOD=chacha20-ietf-poly1305
 SS_PASSWORD=<сгенерированный пароль Shadowsocks>
@@ -106,10 +105,10 @@ CK_PROXY_METHOD=shadowsocks
 CK_ENCRYPTION_METHOD=aes-gcm
 ```
 
-Шаги вручную ниже предполагают чистый хост с Ubuntu, права root (`sudo -i`) и
-свободный публичный TCP-порт.
+Всё дальнейшее рассчитано на чистую Ubuntu, права root (`sudo -i`) и свободный
+публичный TCP-порт.
 
-### Установка бинарников сервера
+### Бинарники
 
 ```bash
 apt update && apt install -y curl xz-utils openssl qrencode
@@ -126,13 +125,13 @@ tar -xJf /tmp/ss.tar.xz -C /usr/local/bin ssserver
 chmod +x /usr/local/bin/ssserver
 ```
 
-Для arm64 возьмите `ck-server-linux-arm64-v2.12.0` и
-`shadowsocks-v1.24.0.aarch64-unknown-linux-gnu.tar.xz`. Эти же версии зафиксированы
-в install-скрипте; более свежие релизы работают так же.
+Для arm64 берите `ck-server-linux-arm64-v2.12.0` и
+`shadowsocks-v1.24.0.aarch64-unknown-linux-gnu.tar.xz`. Эти же версии зашиты в
+скрипт установки; с более свежими всё работает так же.
 
-### Генерация учётных данных
+### Ключи и пароль
 
-Выполнить на сервере:
+На сервере:
 
 ```bash
 KEY_TEXT=$(ck-server -key | sed -r 's/\x1B\[[0-9;]*[mK]//g')
@@ -144,15 +143,15 @@ CK_UID=$(printf '%s\n' "$UID_TEXT" | awk -F': *' '/UID/{print $2}' | awk '{print
 SS_PASSWORD=$(openssl rand -base64 32)
 ```
 
-Убедитесь, что ничего не пустое:
+Проверьте, что ничего не пустое:
 
 ```bash
 printf 'PUBLIC_KEY=%s\nPRIVATE_KEY=%s\nCK_UID=%s\nSS_PASSWORD=%s\n' "$PUBLIC_KEY" "$PRIVATE_KEY" "$CK_UID" "$SS_PASSWORD"
 ```
 
-### Конфиги сервера
+### Конфиги
 
-Задайте публичный хост и порт, затем создайте файлы конфигурации сервера:
+Подставьте свой хост и порт и создайте файлы:
 
 ```bash
 SS_HOST="your.server.example"
@@ -206,9 +205,9 @@ EOF
 chmod 600 /opt/sscloak-443/*.json /opt/sscloak-443/client.env
 ```
 
-Запись `ssudp` и режим `tcp_and_udp` пропускают UDP через туннель — это нужно
-дефолтному для Windows режиму `TUN_DNS_MODE=tunnel`. Для сервера только с TCP
-уберите строку `ssudp` и поставьте `"mode": "tcp_only"`.
+Строка `ssudp` и режим `tcp_and_udp` пускают через туннель UDP — без них не
+работает `TUN_DNS_MODE=tunnel`, который на Windows включён по умолчанию. Если
+UDP не нужен, уберите `ssudp` и поставьте `"mode": "tcp_only"`.
 
 ### Запуск под systemd
 
@@ -247,8 +246,7 @@ systemctl daemon-reload
 systemctl enable --now sscloak-ss-443.service sscloak-ck-443.service
 ```
 
-Оба юнита работают от root, потому что Cloak пишет `userinfo.db` в
-`/opt/sscloak-443`.
+Оба юнита работают от root: Cloak пишет `userinfo.db` в `/opt/sscloak-443`.
 
 ### Открыть порт
 
@@ -256,10 +254,10 @@ systemctl enable --now sscloak-ss-443.service sscloak-ck-443.service
 ufw allow 443/tcp
 ```
 
-Cloak слушает только TCP; UDP едет внутри той же TCP-сессии. Если у провайдера
-свой фаервол (DigitalOcean, Hetzner, AWS) — откройте порт и там.
+Cloak слушает только TCP — UDP едет внутри той же TCP-сессии. Если у провайдера
+есть свой фаервол (DigitalOcean, Hetzner, AWS), откройте порт и там.
 
-### Проверка сервера
+### Проверка
 
 ```bash
 systemctl --no-pager status sscloak-ss-443 sscloak-ck-443
@@ -267,7 +265,7 @@ ss -lntup | grep -E ":$SS_PORT|:6789"
 journalctl -u sscloak-ck-443 -n 30 --no-pager
 ```
 
-Ожидается:
+Должно быть примерно так:
 
 ```text
 active (running)  # оба юнита
@@ -275,41 +273,41 @@ shadowsocks tcp server listening on 127.0.0.1:6789
 Listening on :<SS_PORT>
 ```
 
-Эти проверки подтверждают только то, что процессы слушают порты. Чтобы проверить
-весь путь целиком, нужно подключить клиента: `install-sscloak-server.sh` делает
-это сам — поднимает одноразовые `ck-client` и `sslocal` против
-`127.0.0.1:$SS_PORT` и дёргает `ifconfig.me` через получившийся SOCKS-порт; то же
-самое вручную — это Linux-клиент ниже плюс `./vpn.sh status`.
+Это показывает только то, что процессы слушают порты. Весь путь целиком
+проверяется единственным способом — подключением клиента.
+`install-sscloak-server.sh` делает это сам: поднимает одноразовые `ck-client` и
+`sslocal`, нацеленные на `127.0.0.1:$SS_PORT`, и запрашивает через полученный
+SOCKS-порт `ifconfig.me`. Вручную то же самое — это Linux-клиент из раздела ниже
+и `./vpn.sh status`.
 
-## Значения для клиентов
+## Данные для клиентов
 
-В файле `/opt/sscloak-443/client.env` на сервере лежит всё, что нужно клиентам.
-Скопируйте его в единственный локальный файл значений:
+Всё, что нужно клиентам, сервер складывает в `/opt/sscloak-443/client.env`.
+Локально эти данные живут в одном файле:
 
 ```bash
 cp config-local/client.example.env config-local/client.env
 ```
 
-Впишите в `config-local/client.env` адрес сервера, UID и публичный ключ Cloak и
-пароль Shadowsocks. Скрипты Linux и Windows читают этот же файл. Для iPhone те же
-значения вводятся в Shadowrocket вручную либо импортируются из QR-кода, который
-сделал серверный install-скрипт.
+Впишите туда адрес сервера, UID и публичный ключ Cloak, пароль Shadowsocks. Из
+этого файла читают и Linux-, и Windows-скрипты. На iPhone те же значения либо
+вводятся в Shadowrocket руками, либо приезжают с QR-кодом, который сделал
+серверный скрипт.
 
-Настоящий `config-local/client.env`, сгенерированные рантайм-файлы для десктопа и
-файлы импорта для Shadowrocket внутри `config-local/` не попадают в git, потому
-что содержат секреты.
+Ни настоящий `config-local/client.env`, ни сгенерированные конфиги для
+десктопа, ни файлы импорта для Shadowrocket в git не попадают — в них секреты.
 
-## iPhone: настройка Shadowrocket
+## iPhone: Shadowrocket
 
-Установите Shadowrocket из App Store. На iPhone Shadowrocket подключается прямо к
-серверу Cloak/Shadowsocks, поэтому ему не нужны ни AmneziaVPN, ни `tun2socks`, ни
-значения локальных слушателей из `config-local/client.env`.
+Поставьте Shadowrocket из App Store. К серверу Cloak/Shadowsocks он ходит
+напрямую, поэтому ни AmneziaVPN, ни `tun2socks`, ни настройки локальных
+слушателей из `config-local/client.env` ему не нужны.
 
-Самый быстрый путь — QR-код от `install-sscloak-server.sh`: вкладка Servers ->
-`+` -> иконка сканера -> отсканировать `shadowrocket-sscloak-<порт>.png`. Ручной
-эквивалент — ниже.
+Быстрее всего — QR-код от `install-sscloak-server.sh`: вкладка Servers -> «+» ->
+иконка сканера -> отсканировать `shadowrocket-sscloak-<порт>.png`. Ниже то же
+самое руками.
 
-Добавьте новый сервер Shadowsocks в Shadowrocket с такими значениями:
+Добавьте новый сервер типа Shadowsocks:
 
 ```text
 Type: Shadowsocks
@@ -320,7 +318,7 @@ Password: SS_PASSWORD
 Plugin: cloak
 ```
 
-Настройте плагин Cloak соответствующими значениями:
+И заполните параметры плагина Cloak:
 
 ```text
 UID: CK_UID
@@ -334,9 +332,8 @@ Stream Timeout: CK_STREAM_TIMEOUT
 Num Conn: CK_NUM_CONN
 ```
 
-Используйте те же значения, что и в `config-local/client.env`. Перечисленные ниже
-настройки локальных слушателей нужны только на десктопе и в Shadowrocket не
-вводятся:
+Значения — те же, что в `config-local/client.env`. А вот это нужно только
+десктопным клиентам, в Shadowrocket такого не вводят:
 
 ```text
 SS_LOCAL_SERVER
@@ -346,14 +343,14 @@ SS_LOCAL_PORT
 TUN_*
 ```
 
-Сохранив сервер, выберите его в Shadowrocket и включите переключатель VPN.
-Включите Global Routing, если хотите пустить через туннель весь трафик iPhone.
+Сохраните сервер, выберите его в списке и включите VPN. Чтобы через туннель шёл
+весь трафик телефона, включите Global Routing.
 
 ## Windows: полный туннель
 
-Режим Shadowsocks GUI на Windows — это системный прокси, а не полноценный VPN.
-Для маршрутизации всего устройства установите AmneziaVPN на клиентскую машину с
-Windows. По умолчанию используются эти вложенные в него исполняемые файлы:
+Shadowsocks GUI на Windows работает системным прокси, а не VPN. Чтобы завернуть
+в туннель всю машину, поставьте AmneziaVPN — по умолчанию берутся вложенные в
+него программы:
 
 ```text
 C:\Program Files\AmneziaVPN\cloak\ck-client.exe
@@ -361,32 +358,32 @@ C:\Program Files\AmneziaVPN\ss\ss-local.exe
 C:\Program Files\AmneziaVPN\xray\tun2socks.exe
 ```
 
-Отдельное GUI-приложение Shadowsocks для Windows в режиме полного туннеля не
-нужно. Если какой-то бинарник лежит в другом месте, задайте `CK_BIN`, `SS_BIN`
-или `TUN2SOCKS_BIN` с полным путём к файлу.
+Отдельное GUI-приложение Shadowsocks при этом не нужно. Если что-то лежит в
+другом месте, укажите полный путь через `CK_BIN`, `SS_BIN` или `TUN2SOCKS_BIN`.
 
-Из этого каталога сгенерируйте рантайм-файлы для Windows:
+Из этого каталога соберите файлы для Windows:
 
 ```powershell
 .\vpn.cmd install
 ```
 
-Затем запустите PowerShell с правами администратора из этого каталога и
-выполните:
+Затем откройте PowerShell от администратора в этом же каталоге и запустите:
 
 ```powershell
 .\vpn.cmd run
 ```
 
-`run` запускает `ck-client`, `ss-local` и `tun2socks`, создаёт TUN-адаптер с
-именем `sscloak`, добавляет через него разделённые маршруты по умолчанию и
-восстанавливает маршруты по Ctrl-C. Команды Windows:
+`run` поднимает `ck-client`, `ss-local` и `tun2socks`, создаёт TUN-адаптер с
+именем `sscloak`, заворачивает в него маршруты по умолчанию, а по Ctrl-C
+возвращает маршруты на место.
 
-По умолчанию Windows использует `TUN_DNS_MODE=tunnel`: второй клиент Cloak несёт
-UDP через серверный метод `ssudp`, а `ss-local -u` даёт ретрансляцию UDP по
-SOCKS5. Поэтому DNS резолвится с VPN-сервера, а не из локальной сети. Режим
-`physical` пускает DNS мимо туннеля через активный адаптер; `none` оставляет
-TUN-адаптер без настроенных DNS-серверов.
+По умолчанию на Windows стоит `TUN_DNS_MODE=tunnel`: второй экземпляр `ck-client`
+тащит UDP через серверный `ssudp`, а `ss-local -u` работает UDP-релеем для
+SOCKS5. За счёт этого DNS резолвится на VPN-сервере, а не в локальной сети.
+Режим `physical` пускает DNS мимо туннеля, через активный адаптер; `none`
+оставляет TUN-адаптер вообще без DNS-серверов.
+
+Команды:
 
 ```powershell
 .\vpn.cmd install
@@ -397,18 +394,17 @@ TUN-адаптер без настроенных DNS-серверов.
 .\vpn.cmd run
 ```
 
-Скрипт для Windows пишет сгенерированные рантайм-файлы в `config-windows/`.
+Сгенерированные файлы Windows-скрипт складывает в `config-windows/`.
 
 ## Linux: полный туннель
 
-Установите AmneziaVPN на клиентскую машину с Linux. Используются вложенные в него
-бинарники:
+Поставьте AmneziaVPN на клиентскую машину — берутся вложенные в него бинарники:
 
-- `ck-client`, клиент Cloak
-- `ss-local`, локальный клиент Shadowsocks
-- `tun2socks`, для заворачивания TUN-интерфейса в локальный SOCKS-прокси
+- `ck-client` — клиент Cloak
+- `ss-local` — локальный клиент Shadowsocks
+- `tun2socks` — заворачивает TUN-интерфейс в локальный SOCKS-прокси
 
-`./vpn.sh install` ищет в `PATH` эти команды:
+`./vpn.sh install` ищет в `PATH` такие команды:
 
 ```text
 ck-client
@@ -416,7 +412,7 @@ ss-local
 tun2socks
 ```
 
-Если их там нет, установщик ищет исполняемые файлы в:
+Если в `PATH` их нет, установщик просматривает каталоги:
 
 ```text
 /usr/local/bin
@@ -425,8 +421,8 @@ tun2socks
 /opt
 ```
 
-Если какой-то бинарник установлен вне `PATH`, передайте явные пути. При типичной
-установке AmneziaVPN это выглядит так:
+Если бинарник лежит где-то ещё, передайте путь явно. Для типичной установки
+AmneziaVPN это выглядит так:
 
 ```bash
 CK_BIN=/opt/AmneziaVPN/client/bin/ck-client \
@@ -435,31 +431,25 @@ TUN2SOCKS_BIN=/opt/AmneziaVPN/client/bin/tun2socks \
 ./vpn.sh install
 ```
 
-Поменять каталоги запасного поиска:
+Сменить каталоги запасного поиска:
 
 ```bash
 BIN_SEARCH_DIRS=/opt:/srv/tools ./vpn.sh install
 ```
 
-Из этого каталога установите сгенерированные рантайм-файлы, systemd-юниты и хук
+Из этого каталога поставьте сгенерированные конфиги, systemd-юниты и хук
 системного сна:
 
 ```bash
 ./vpn.sh install
 ```
 
-Сгенерированные юниты ссылаются на текущий каталог, поэтому если вы перенесёте
-эту папку, выполните:
+В юнитах прописан путь к текущему каталогу, поэтому после переноса папки
+`./vpn.sh install` нужно запустить заново, уже с нового места. Найденные пути к
+бинарникам установщик сохраняет в `config-linux/runtime.env`, туда же, в
+`config-linux/`, кладёт сгенерированные конфиги клиента.
 
-```bash
-./vpn.sh install
-```
-
-заново с нового места. Установщик сохраняет найденные пути к бинарникам в
-`config-linux/runtime.env`, а сгенерированные конфиги клиента — в
-`config-linux/`.
-
-Команды Linux:
+Команды:
 
 ```bash
 ./vpn.sh install
@@ -470,18 +460,18 @@ BIN_SEARCH_DIRS=/opt:/srv/tools ./vpn.sh install
 ./vpn.sh run
 ```
 
-`./vpn.sh run` запускает VPN в переднем плане. Ctrl-C останавливает его и
-восстанавливает маршруты.
+`./vpn.sh run` держит VPN на переднем плане: Ctrl-C останавливает его и
+возвращает маршруты на место.
 
 ## Файлы конфигурации
 
-Секреты клиента лежат в одном файле:
+Секреты клиента — в одном файле:
 
 ```text
 config-local/client.env
 ```
 
-Сгенерированные рантайм-конфиги для десктопа:
+Конфиги, которые генерируются на десктопе автоматически:
 
 ```text
 config-linux/ck-client.json
@@ -492,6 +482,5 @@ config-windows/ss-local.json
 config-windows/runtime.json
 ```
 
-Не редактируйте сгенерированные рантайм-файлы напрямую. Меняйте
-`config-local/client.env`, затем заново запускайте `./vpn.sh install`,
-`./vpn.sh on` или `.\vpn.cmd install`.
+Руками их править не надо: меняйте `config-local/client.env` и заново
+запускайте `./vpn.sh install`, `./vpn.sh on` или `.\vpn.cmd install`.
