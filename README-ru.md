@@ -1,4 +1,4 @@
-# Shadowsocks поверх Cloak — VPN
+﻿# Shadowsocks поверх Cloak — VPN
 
 Перевод [README.md](README.md).
 
@@ -75,7 +75,7 @@ ssh user@server 'bash ~/install-sscloak-server.sh'
 Необязательные переменные окружения:
 
 ```bash
-SS_HOST=vpn.example.com SS_PORT=8443 bash install-sscloak-server.sh
+SS_HOST=vpn.example.com SS_PORT=443 bash install-sscloak-server.sh
 OUT_DIR=/tmp bash install-sscloak-server.sh      # куда положить QR-код
 REGENERATE=1 bash install-sscloak-server.sh      # новые ключи, старые клиенты отвалятся
 SKIP_SELFTEST=1 bash install-sscloak-server.sh   # без проверки туннеля
@@ -95,7 +95,7 @@ CLOAK_VERSION=v2.12.0 SSRUST_VERSION=v1.24.0 bash install-sscloak-server.sh
 
 ```text
 SS_HOST=<имя хоста или IP сервера>
-SS_PORT=<публичный порт Cloak, обычно 8443>
+SS_PORT=<публичный порт Cloak, обычно 443>
 SS_METHOD=chacha20-ietf-poly1305
 SS_PASSWORD=<сгенерированный пароль Shadowsocks>
 CK_UID=<сгенерированный UID Cloak>
@@ -156,11 +156,11 @@ printf 'PUBLIC_KEY=%s\nPRIVATE_KEY=%s\nCK_UID=%s\nSS_PASSWORD=%s\n' "$PUBLIC_KEY
 
 ```bash
 SS_HOST="your.server.example"
-SS_PORT="8443"
+SS_PORT="443"
 
-install -d -m 700 /opt/sscloak-8443
+install -d -m 700 /opt/sscloak-443
 
-cat >/opt/sscloak-8443/ck-config.json <<EOF
+cat >/opt/sscloak-443/ck-config.json <<EOF
 {
   "ProxyBook": {
     "shadowsocks": ["tcp", "127.0.0.1:6789"],
@@ -171,12 +171,12 @@ cat >/opt/sscloak-8443/ck-config.json <<EOF
   "RedirAddr": "tile.openstreetmap.org",
   "PrivateKey": "$PRIVATE_KEY",
   "AdminUID": "$CK_UID",
-  "DatabasePath": "/opt/sscloak-8443/userinfo.db",
+  "DatabasePath": "/opt/sscloak-443/userinfo.db",
   "StreamTimeout": 300
 }
 EOF
 
-cat >/opt/sscloak-8443/ss-config.json <<EOF
+cat >/opt/sscloak-443/ss-config.json <<EOF
 {
   "server": "127.0.0.1",
   "server_port": 6789,
@@ -187,7 +187,7 @@ cat >/opt/sscloak-8443/ss-config.json <<EOF
 }
 EOF
 
-cat >/opt/sscloak-8443/client.env <<EOF
+cat >/opt/sscloak-443/client.env <<EOF
 SS_HOST=$SS_HOST
 SS_PORT=$SS_PORT
 SS_METHOD=chacha20-ietf-poly1305
@@ -203,7 +203,7 @@ CK_STREAM_TIMEOUT=300
 CK_NUM_CONN=4
 EOF
 
-chmod 600 /opt/sscloak-8443/*.json /opt/sscloak-8443/client.env
+chmod 600 /opt/sscloak-443/*.json /opt/sscloak-443/client.env
 ```
 
 Запись `ssudp` и режим `tcp_and_udp` пропускают UDP через туннель — это нужно
@@ -213,14 +213,14 @@ chmod 600 /opt/sscloak-8443/*.json /opt/sscloak-8443/client.env
 ### Запуск под systemd
 
 ```bash
-cat >/etc/systemd/system/sscloak-ss-8443.service <<'EOF'
+cat >/etc/systemd/system/sscloak-ss-443.service <<'EOF'
 [Unit]
-Description=Shadowsocks server for sscloak-8443
+Description=Shadowsocks server for sscloak-443
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/local/bin/ssserver -c /opt/sscloak-8443/ss-config.json
+ExecStart=/usr/local/bin/ssserver -c /opt/sscloak-443/ss-config.json
 Restart=always
 RestartSec=3
 
@@ -228,14 +228,14 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-cat >/etc/systemd/system/sscloak-ck-8443.service <<'EOF'
+cat >/etc/systemd/system/sscloak-ck-443.service <<'EOF'
 [Unit]
-Description=Cloak server for sscloak-8443
-After=sscloak-ss-8443.service
-Requires=sscloak-ss-8443.service
+Description=Cloak server for sscloak-443
+After=sscloak-ss-443.service
+Requires=sscloak-ss-443.service
 
 [Service]
-ExecStart=/usr/local/bin/ck-server -c /opt/sscloak-8443/ck-config.json
+ExecStart=/usr/local/bin/ck-server -c /opt/sscloak-443/ck-config.json
 Restart=always
 RestartSec=3
 
@@ -244,16 +244,16 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now sscloak-ss-8443.service sscloak-ck-8443.service
+systemctl enable --now sscloak-ss-443.service sscloak-ck-443.service
 ```
 
 Оба юнита работают от root, потому что Cloak пишет `userinfo.db` в
-`/opt/sscloak-8443`.
+`/opt/sscloak-443`.
 
 ### Открыть порт
 
 ```bash
-ufw allow 8443/tcp
+ufw allow 443/tcp
 ```
 
 Cloak слушает только TCP; UDP едет внутри той же TCP-сессии. Если у провайдера
@@ -262,9 +262,9 @@ Cloak слушает только TCP; UDP едет внутри той же TCP
 ### Проверка сервера
 
 ```bash
-systemctl --no-pager status sscloak-ss-8443 sscloak-ck-8443
+systemctl --no-pager status sscloak-ss-443 sscloak-ck-443
 ss -lntup | grep -E ":$SS_PORT|:6789"
-journalctl -u sscloak-ck-8443 -n 30 --no-pager
+journalctl -u sscloak-ck-443 -n 30 --no-pager
 ```
 
 Ожидается:
@@ -283,7 +283,7 @@ Listening on :<SS_PORT>
 
 ## Значения для клиентов
 
-В файле `/opt/sscloak-8443/client.env` на сервере лежит всё, что нужно клиентам.
+В файле `/opt/sscloak-443/client.env` на сервере лежит всё, что нужно клиентам.
 Скопируйте его в единственный локальный файл значений:
 
 ```bash

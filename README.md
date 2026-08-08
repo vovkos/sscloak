@@ -1,4 +1,4 @@
-# Shadowsocks over Cloak VPN
+﻿# Shadowsocks over Cloak VPN
 
 Setup notes and scripts for the Ubuntu server and for the iPhone, Windows, and
 Linux clients.
@@ -74,7 +74,7 @@ itself.
 Optional environment variables:
 
 ```bash
-SS_HOST=vpn.example.com SS_PORT=8443 bash install-sscloak-server.sh
+SS_HOST=vpn.example.com SS_PORT=443 bash install-sscloak-server.sh
 OUT_DIR=/tmp bash install-sscloak-server.sh      # where to write the QR code
 REGENERATE=1 bash install-sscloak-server.sh      # new keys, drops existing clients
 SKIP_SELFTEST=1 bash install-sscloak-server.sh   # skip the tunnel check
@@ -94,7 +94,7 @@ Use these placeholders consistently:
 
 ```text
 SS_HOST=<server hostname or IP>
-SS_PORT=<public Cloak port, usually 8443>
+SS_PORT=<public Cloak port, usually 443>
 SS_METHOD=chacha20-ietf-poly1305
 SS_PASSWORD=<generated Shadowsocks password>
 CK_UID=<generated Cloak UID>
@@ -155,11 +155,11 @@ Set your public host and port, then create the server config files:
 
 ```bash
 SS_HOST="your.server.example"
-SS_PORT="8443"
+SS_PORT="443"
 
-install -d -m 700 /opt/sscloak-8443
+install -d -m 700 /opt/sscloak-443
 
-cat >/opt/sscloak-8443/ck-config.json <<EOF
+cat >/opt/sscloak-443/ck-config.json <<EOF
 {
   "ProxyBook": {
     "shadowsocks": ["tcp", "127.0.0.1:6789"],
@@ -170,12 +170,12 @@ cat >/opt/sscloak-8443/ck-config.json <<EOF
   "RedirAddr": "tile.openstreetmap.org",
   "PrivateKey": "$PRIVATE_KEY",
   "AdminUID": "$CK_UID",
-  "DatabasePath": "/opt/sscloak-8443/userinfo.db",
+  "DatabasePath": "/opt/sscloak-443/userinfo.db",
   "StreamTimeout": 300
 }
 EOF
 
-cat >/opt/sscloak-8443/ss-config.json <<EOF
+cat >/opt/sscloak-443/ss-config.json <<EOF
 {
   "server": "127.0.0.1",
   "server_port": 6789,
@@ -186,7 +186,7 @@ cat >/opt/sscloak-8443/ss-config.json <<EOF
 }
 EOF
 
-cat >/opt/sscloak-8443/client.env <<EOF
+cat >/opt/sscloak-443/client.env <<EOF
 SS_HOST=$SS_HOST
 SS_PORT=$SS_PORT
 SS_METHOD=chacha20-ietf-poly1305
@@ -202,7 +202,7 @@ CK_STREAM_TIMEOUT=300
 CK_NUM_CONN=4
 EOF
 
-chmod 600 /opt/sscloak-8443/*.json /opt/sscloak-8443/client.env
+chmod 600 /opt/sscloak-443/*.json /opt/sscloak-443/client.env
 ```
 
 The `ssudp` entry and `tcp_and_udp` carry UDP through the tunnel, which is what
@@ -212,14 +212,14 @@ drop the `ssudp` line and use `"mode": "tcp_only"`.
 ### Run Under systemd
 
 ```bash
-cat >/etc/systemd/system/sscloak-ss-8443.service <<'EOF'
+cat >/etc/systemd/system/sscloak-ss-443.service <<'EOF'
 [Unit]
-Description=Shadowsocks server for sscloak-8443
+Description=Shadowsocks server for sscloak-443
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/local/bin/ssserver -c /opt/sscloak-8443/ss-config.json
+ExecStart=/usr/local/bin/ssserver -c /opt/sscloak-443/ss-config.json
 Restart=always
 RestartSec=3
 
@@ -227,14 +227,14 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-cat >/etc/systemd/system/sscloak-ck-8443.service <<'EOF'
+cat >/etc/systemd/system/sscloak-ck-443.service <<'EOF'
 [Unit]
-Description=Cloak server for sscloak-8443
-After=sscloak-ss-8443.service
-Requires=sscloak-ss-8443.service
+Description=Cloak server for sscloak-443
+After=sscloak-ss-443.service
+Requires=sscloak-ss-443.service
 
 [Service]
-ExecStart=/usr/local/bin/ck-server -c /opt/sscloak-8443/ck-config.json
+ExecStart=/usr/local/bin/ck-server -c /opt/sscloak-443/ck-config.json
 Restart=always
 RestartSec=3
 
@@ -243,16 +243,16 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now sscloak-ss-8443.service sscloak-ck-8443.service
+systemctl enable --now sscloak-ss-443.service sscloak-ck-443.service
 ```
 
 Both units run as root because Cloak writes `userinfo.db` into
-`/opt/sscloak-8443`.
+`/opt/sscloak-443`.
 
 ### Open The Port
 
 ```bash
-ufw allow 8443/tcp
+ufw allow 443/tcp
 ```
 
 Cloak listens on TCP only; UDP rides inside the same TCP session. If the
@@ -262,9 +262,9 @@ too.
 ### Check Server
 
 ```bash
-systemctl --no-pager status sscloak-ss-8443 sscloak-ck-8443
+systemctl --no-pager status sscloak-ss-443 sscloak-ck-443
 ss -lntup | grep -E ":$SS_PORT|:6789"
-journalctl -u sscloak-ck-8443 -n 30 --no-pager
+journalctl -u sscloak-ck-443 -n 30 --no-pager
 ```
 
 Expected:
@@ -283,7 +283,7 @@ Linux client below plus `./vpn.sh status`.
 
 ## Client Values
 
-`/opt/sscloak-8443/client.env` on the server holds everything the clients need.
+`/opt/sscloak-443/client.env` on the server holds everything the clients need.
 Copy it into the single local client values file:
 
 ```bash
