@@ -71,14 +71,22 @@ port in `ufw`, verifies the tunnel with a throwaway local client, and drops
 `shadowrocket-sscloak-<port>.png` plus a `.txt` with the `ss://` link next to
 itself.
 
-Optional environment variables:
+All of it can be driven by environment variables, all optional:
+
+```text
+SS_HOST=<host or IP>   address clients connect to; default is the public IP
+SS_PORT=443            public Cloak TCP port
+OUT_DIR=<directory>    where to write the QR code; default is the current one
+REGENERATE=1           new keys even if the port is already configured
+SKIP_SELFTEST=1        skip the tunnel check
+CLOAK_VERSION=v2.12.0  release to install
+SSRUST_VERSION=v1.24.0
+```
+
+So a fully unattended run looks like this:
 
 ```bash
-SS_HOST=vpn.example.com SS_PORT=443 bash install-sscloak-server.sh
-OUT_DIR=/tmp bash install-sscloak-server.sh      # where to write the QR code
-REGENERATE=1 bash install-sscloak-server.sh      # new keys, drops existing clients
-SKIP_SELFTEST=1 bash install-sscloak-server.sh   # skip the tunnel check
-CLOAK_VERSION=v2.12.0 SSRUST_VERSION=v1.24.0 bash install-sscloak-server.sh
+SS_HOST=vpn.example.com OUT_DIR=/tmp bash install-sscloak-server.sh
 ```
 
 Rerunning is safe: an already-configured port keeps its keys by default and only
@@ -378,13 +386,15 @@ Then start an elevated PowerShell from this directory and run:
 
 `run` starts `ck-client`, `ss-local`, and `tun2socks`, creates a TUN adapter
 named `sscloak`, adds split default routes through it, and restores routes when
-you press Ctrl-C. Windows commands:
+you press Ctrl-C.
 
 By default, Windows uses `TUN_DNS_MODE=tunnel`: a second Cloak client carries
 UDP through the server's `ssudp` method, and `ss-local -u` provides
 SOCKS5 UDP relay. DNS therefore resolves from the VPN server rather than the
 local network. `physical` bypasses the tunnel through the active adapter;
 `none` leaves the TUN adapter without configured DNS servers.
+
+Windows commands:
 
 ```powershell
 .\vpn.cmd install
@@ -447,14 +457,9 @@ system sleep hook:
 ```
 
 The generated units point at the current directory, so if you move this folder
-later, run:
-
-```bash
-./vpn.sh install
-```
-
-again from the new location. The installer stores resolved binary paths in
-`config-linux/runtime.env` and generated client configs in `config-linux/`.
+later, run `./vpn.sh install` again from the new location. The installer stores
+resolved binary paths in `config-linux/runtime.env` and generated client configs
+in `config-linux/`.
 
 Linux commands:
 

@@ -71,14 +71,22 @@ ssh user@server 'bash ~/install-sscloak-server.sh'
 порт в `ufw`, проверит туннель одноразовым локальным клиентом и положит рядом с
 собой `shadowrocket-sscloak-<порт>.png` и `.txt` со ссылкой `ss://`.
 
-Переменные окружения, все необязательные:
+Всем этим можно управлять переменными окружения, все необязательные:
+
+```text
+SS_HOST=<домен или IP>  адрес, на который пойдут клиенты; по умолчанию публичный IP
+SS_PORT=443             публичный TCP-порт Cloak
+OUT_DIR=<каталог>       куда положить QR-код; по умолчанию текущий
+REGENERATE=1            новые ключи, даже если порт уже настроен
+SKIP_SELFTEST=1         без проверки туннеля
+CLOAK_VERSION=v2.12.0   какой релиз ставить
+SSRUST_VERSION=v1.24.0
+```
+
+Полностью автоматический запуск выглядит так:
 
 ```bash
-SS_HOST=vpn.example.com SS_PORT=443 bash install-sscloak-server.sh
-OUT_DIR=/tmp bash install-sscloak-server.sh      # куда положить QR-код
-REGENERATE=1 bash install-sscloak-server.sh      # новые ключи, старые клиенты отвалятся
-SKIP_SELFTEST=1 bash install-sscloak-server.sh   # без проверки туннеля
-CLOAK_VERSION=v2.12.0 SSRUST_VERSION=v1.24.0 bash install-sscloak-server.sh
+SS_HOST=vpn.example.com OUT_DIR=/tmp bash install-sscloak-server.sh
 ```
 
 Запускать повторно безопасно: если порт уже настроен, ключи остаются прежними,
