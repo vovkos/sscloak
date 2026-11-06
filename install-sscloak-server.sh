@@ -209,7 +209,7 @@ selftest() {
 
   cat > "$TMP_DIR/ck-test.json" <<EOF
 {
-  "BrowserSig": "chrome",
+  "BrowserSig": "firefox",
   "EncryptionMethod": "aes-gcm",
   "NumConn": 1,
   "ProxyMethod": "shadowsocks",
@@ -413,7 +413,7 @@ SS_PASSWORD=$SS_PASSWORD
 CK_UID=$CK_UID
 CK_PUBLIC_KEY=$PUBLIC_KEY
 CK_SERVER_NAME=$CK_SERVER_NAME
-CK_BROWSER_SIG=chrome
+CK_BROWSER_SIG=firefox
 CK_PROXY_METHOD=shadowsocks
 CK_ENCRYPTION_METHOD=aes-gcm
 CK_TRANSPORT=direct

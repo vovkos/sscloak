@@ -31,7 +31,7 @@ detect_bin() {
   local env_name="$1"
   shift
   local configured="${!env_name:-}"
-  local search_dirs="${BIN_SEARCH_DIRS:-/usr/local/bin:/usr/bin:/bin:/opt}"
+  local search_dirs="${BIN_SEARCH_DIRS:-$APP_DIR/bin:/usr/local/bin:/usr/bin:/bin:/opt}"
 
   if [[ -n "$configured" ]]; then
     if [[ -x "$configured" ]]; then
@@ -87,7 +87,7 @@ load_client_env() {
   fi
 
   CK_SERVER_NAME="${CK_SERVER_NAME:-tile.openstreetmap.org}"
-  CK_BROWSER_SIG="${CK_BROWSER_SIG:-chrome}"
+  CK_BROWSER_SIG="${CK_BROWSER_SIG:-firefox}"
   CK_PROXY_METHOD="${CK_PROXY_METHOD:-shadowsocks}"
   CK_ENCRYPTION_METHOD="${CK_ENCRYPTION_METHOD:-aes-gcm}"
   CK_TRANSPORT="${CK_TRANSPORT:-direct}"
@@ -153,15 +153,15 @@ write_runtime_env() {
   local ck_bin ss_bin tun2socks_bin vps_ip
   mkdir -p "$SSCLOAK_DIR"
 
-  ck_bin="$(detect_bin CK_BIN ck-client)" || {
+  ck_bin="$(detect_bin CK_BIN ck-client "ck-client-linux-*")" || {
     echo "Could not find ck-client. Install Cloak client or set CK_BIN=/path/to/ck-client." >&2
     return 1
   }
-  ss_bin="$(detect_bin SS_BIN ss-local)" || {
-    echo "Could not find ss-local. Install shadowsocks-libev or set SS_BIN=/path/to/ss-local." >&2
+  ss_bin="$(detect_bin SS_BIN sslocal ss-local)" || {
+    echo "Could not find sslocal or ss-local. Install shadowsocks-rust or set SS_BIN=/path/to/sslocal." >&2
     return 1
   }
-  tun2socks_bin="$(detect_bin TUN2SOCKS_BIN tun2socks)" || {
+  tun2socks_bin="$(detect_bin TUN2SOCKS_BIN tun2socks "tun2socks-linux-*")" || {
     echo "Could not find tun2socks. Install tun2socks or set TUN2SOCKS_BIN=/path/to/tun2socks." >&2
     return 1
   }
@@ -326,8 +326,8 @@ local_start() {
   load_runtime_env
 
   local ck_bin ss_bin ck_log ss_log ck_pid_file ss_pid_file
-  ck_bin="$(detect_bin CK_BIN ck-client)"
-  ss_bin="$(detect_bin SS_BIN ss-local)"
+  ck_bin="$(detect_bin CK_BIN ck-client "ck-client-linux-*")"
+  ss_bin="$(detect_bin SS_BIN sslocal ss-local)"
   ck_log="${CK_LOG:-/tmp/ck-client-sscloak-8443.log}"
   ss_log="${SS_LOG:-/tmp/ss-local-sscloak-8443.log}"
   ck_pid_file="${CK_PID_FILE:-/tmp/ck-client-sscloak-8443.pid}"
@@ -388,8 +388,8 @@ local_stop() {
     rm -f "$ck_pid_file"
   fi
 
-  pkill -f "ck-client .*$SSCLOAK_DIR/ck-client.json" 2>/dev/null || true
-  pkill -f "ss-local .*$SSCLOAK_DIR/ss-local.json" 2>/dev/null || true
+  pkill -f "ck-client[^ ]* .*$SSCLOAK_DIR/ck-client.json" 2>/dev/null || true
+  pkill -f "(ss-local|sslocal) .*$SSCLOAK_DIR/ss-local.json" 2>/dev/null || true
 }
 
 tun_up() {
@@ -471,7 +471,7 @@ tun_start() {
   local tun_dev socks_addr tun2socks_bin
   tun_dev="${TUN_DEV:-tun1}"
   socks_addr="${SOCKS_ADDR:-127.0.0.1:10810}"
-  tun2socks_bin="$(detect_bin TUN2SOCKS_BIN tun2socks)"
+  tun2socks_bin="$(detect_bin TUN2SOCKS_BIN tun2socks "tun2socks-linux-*")"
 
   # Long-form flags: Amnezia's build uses Go's stdlib flag package (accepts one
   # or two dashes), but the standalone xjasonlyu build uses pflag, where a
@@ -523,7 +523,7 @@ clean_vpn() {
 
   systemctl stop sscloak-tun.service sscloak-client.service 2>/dev/null || true
   local_stop 2>/dev/null || true
-  pkill -f 'tun2socks .*socks5://127\.0\.0\.1:10810' 2>/dev/null || true
+  pkill -f 'tun2socks[^ ]* .*socks5://127\.0\.0\.1:10810' 2>/dev/null || true
 
   while read -r route; do
     [[ -z "$route" ]] && continue

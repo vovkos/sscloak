@@ -16,6 +16,7 @@ $CkUdpConfig = Join-Path $RuntimeDir 'ck-client-udp.json'
 $SsConfig = Join-Path $RuntimeDir 'ss-local.json'
 $StateFile = Join-Path $RuntimeDir 'state.json'
 $LogDir = Join-Path $RuntimeDir 'logs'
+$BinDir = if ($env:BIN_DIR) { $env:BIN_DIR } else { Join-Path $AppDir 'bin' }
 
 function Write-Step {
     param([string]$Message)
@@ -96,7 +97,7 @@ function Read-ClientEnv {
 
     $defaults = @{
         CK_SERVER_NAME = 'tile.openstreetmap.org'
-        CK_BROWSER_SIG = 'chrome'
+        CK_BROWSER_SIG = 'firefox'
         CK_PROXY_METHOD = 'shadowsocks'
         CK_ENCRYPTION_METHOD = 'aes-gcm'
         CK_TRANSPORT = 'direct'
@@ -135,13 +136,20 @@ function Find-Binary {
         throw "$EnvName is set but does not exist: $configured"
     }
 
+    # Release assets keep their upstream names (versioned, arch-suffixed), so
+    # match by wildcard in $BinDir first, then by exact name in PATH.
     foreach ($candidate in $Candidates) {
-        if (Test-Path -LiteralPath $candidate) { return (Resolve-Path -LiteralPath $candidate).Path }
-        $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
+        $found = Get-ChildItem -Path (Join-Path $BinDir $candidate) -File -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending | Select-Object -First 1
+        if ($found) { return $found.FullName }
+    }
+    foreach ($candidate in $Candidates) {
+        if ($candidate.Contains('*')) { continue }
+        $cmd = Get-Command $candidate -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($cmd) { return $cmd.Source }
     }
 
-    throw "Could not find $EnvName. Set $EnvName to the executable path and run install again."
+    throw "Could not find $EnvName ($($Candidates -join ', ')) in $BinDir or PATH. Put it there, or set $EnvName to the executable path."
 }
 
 function Resolve-RemoteIp {
@@ -187,22 +195,20 @@ function Write-Configs {
         method = $env.SS_METHOD
         password = $env.SS_PASSWORD
         timeout = [int]$env.SS_TIMEOUT
+        # In the config, not as a flag: -u means TCP+UDP in shadowsocks-libev
+        # but UDP-only in shadowsocks-rust. Both honor this key.
+        mode = 'tcp_and_udp'
+    }
+
+    $tun2socksBin = Find-Binary 'TUN2SOCKS_BIN' @('tun2socks*.exe', 'tun2socks.exe')
+    if (-not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $tun2socksBin) 'wintun.dll'))) {
+        Write-Warning "wintun.dll not found next to $tun2socksBin; tun2socks needs it (wintun.net zip: wintun\bin\amd64\wintun.dll)."
     }
 
     $runtime = [ordered]@{
-        CK_BIN = Find-Binary 'CK_BIN' @(
-            'C:\Program Files\AmneziaVPN\cloak\ck-client.exe',
-            'C:\Vpn\cloak\ck-client.exe',
-            'ck-client.exe'
-        )
-        SS_BIN = Find-Binary 'SS_BIN' @(
-            'C:\Program Files\AmneziaVPN\ss\ss-local.exe',
-            'ss-local.exe'
-        )
-        TUN2SOCKS_BIN = Find-Binary 'TUN2SOCKS_BIN' @(
-            'C:\Program Files\AmneziaVPN\xray\tun2socks.exe',
-            'tun2socks.exe'
-        )
+        CK_BIN = Find-Binary 'CK_BIN' @('ck-client*.exe', 'ck-client.exe')
+        SS_BIN = Find-Binary 'SS_BIN' @('sslocal.exe', 'ss-local.exe')
+        TUN2SOCKS_BIN = $tun2socksBin
         REMOTE_HOST = $env.SS_HOST
         REMOTE_IP = $remoteIp
         REMOTE_PORT = [int]$env.SS_PORT
@@ -231,17 +237,17 @@ function Read-Runtime {
 }
 
 function Get-ProcessByPathAndArgs {
-    param([string]$Name, [string]$Path, [string]$ArgLike)
-    Get-CimInstance Win32_Process | Where-Object {
-        $_.Name -eq $Name -and
+    param([string]$Path, [string]$ArgLike)
+    $name = Split-Path -Leaf $Path
+    Get-CimInstance Win32_Process -Filter "Name = '$name'" | Where-Object {
         $_.ExecutablePath -eq $Path -and
         $_.CommandLine -like $ArgLike
     }
 }
 
 function Stop-ProcessByPathAndArgs {
-    param([string]$Name, [string]$Path, [string]$ArgLike)
-    Get-ProcessByPathAndArgs -Name $Name -Path $Path -ArgLike $ArgLike |
+    param([string]$Path, [string]$ArgLike)
+    Get-ProcessByPathAndArgs -Path $Path -ArgLike $ArgLike |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 }
 
@@ -285,7 +291,7 @@ function Start-LocalProxy {
     Stop-LocalPortOwner -Port $Runtime.SOCKS_PORT
 
     Write-Step "Starting Cloak listener on 127.0.0.1:$($Runtime.CK_LISTEN_PORT)"
-    $ckExisting = Get-ProcessByPathAndArgs -Name 'ck-client.exe' -Path $Runtime.CK_BIN -ArgLike "*$CkConfig*"
+    $ckExisting = Get-ProcessByPathAndArgs -Path $Runtime.CK_BIN -ArgLike "*$CkConfig*"
     if (-not $ckExisting) {
         Remove-Item (Join-Path $LogDir 'ck-client.out.log'), (Join-Path $LogDir 'ck-client.err.log') -ErrorAction SilentlyContinue
         Start-Process -FilePath $Runtime.CK_BIN `
@@ -297,7 +303,7 @@ function Start-LocalProxy {
         Start-Sleep -Seconds 2
     }
 
-    $ckRunning = Get-ProcessByPathAndArgs -Name 'ck-client.exe' -Path $Runtime.CK_BIN -ArgLike "*$CkConfig*"
+    $ckRunning = Get-ProcessByPathAndArgs -Path $Runtime.CK_BIN -ArgLike "*$CkConfig*"
     if (-not $ckRunning) {
         $ckLog = Join-Path $LogDir 'ck-client.err.log'
         $tail = if (Test-Path -LiteralPath $ckLog) { (Get-Content -Tail 20 -LiteralPath $ckLog) -join [Environment]::NewLine } else { '' }
@@ -305,7 +311,7 @@ function Start-LocalProxy {
     }
 
     Write-Step "Starting Cloak UDP listener on 127.0.0.1:$($Runtime.CK_LISTEN_PORT)"
-    $ckUdpExisting = Get-ProcessByPathAndArgs -Name 'ck-client.exe' -Path $Runtime.CK_BIN -ArgLike "*$CkUdpConfig*"
+    $ckUdpExisting = Get-ProcessByPathAndArgs -Path $Runtime.CK_BIN -ArgLike "*$CkUdpConfig*"
     if (-not $ckUdpExisting) {
         Remove-Item (Join-Path $LogDir 'ck-client-udp.out.log'), (Join-Path $LogDir 'ck-client-udp.err.log') -ErrorAction SilentlyContinue
         Start-Process -FilePath $Runtime.CK_BIN `
@@ -317,7 +323,7 @@ function Start-LocalProxy {
         Start-Sleep -Seconds 2
     }
 
-    $ckUdpRunning = Get-ProcessByPathAndArgs -Name 'ck-client.exe' -Path $Runtime.CK_BIN -ArgLike "*$CkUdpConfig*"
+    $ckUdpRunning = Get-ProcessByPathAndArgs -Path $Runtime.CK_BIN -ArgLike "*$CkUdpConfig*"
     if (-not $ckUdpRunning) {
         $ckUdpLog = Join-Path $LogDir 'ck-client-udp.err.log'
         $tail = if (Test-Path -LiteralPath $ckUdpLog) { (Get-Content -Tail 20 -LiteralPath $ckUdpLog) -join [Environment]::NewLine } else { '' }
@@ -325,11 +331,11 @@ function Start-LocalProxy {
     }
 
     Write-Step "Starting ss-local SOCKS listener on 127.0.0.1:$($Runtime.SOCKS_PORT)"
-    $ssExisting = Get-ProcessByPathAndArgs -Name 'ss-local.exe' -Path $Runtime.SS_BIN -ArgLike "*$SsConfig*"
+    $ssExisting = Get-ProcessByPathAndArgs -Path $Runtime.SS_BIN -ArgLike "*$SsConfig*"
     if (-not $ssExisting) {
         Remove-Item (Join-Path $LogDir 'ss-local.out.log'), (Join-Path $LogDir 'ss-local.err.log') -ErrorAction SilentlyContinue
         Start-Process -FilePath $Runtime.SS_BIN `
-            -ArgumentList @('-c', $SsConfig, '-u') `
+            -ArgumentList @('-c', $SsConfig) `
             -WorkingDirectory (Split-Path -Parent $Runtime.SS_BIN) `
             -RedirectStandardOutput (Join-Path $LogDir 'ss-local.out.log') `
             -RedirectStandardError (Join-Path $LogDir 'ss-local.err.log') `
@@ -337,7 +343,7 @@ function Start-LocalProxy {
         Start-Sleep -Seconds 2
     }
 
-    $ssRunning = Get-ProcessByPathAndArgs -Name 'ss-local.exe' -Path $Runtime.SS_BIN -ArgLike "*$SsConfig*"
+    $ssRunning = Get-ProcessByPathAndArgs -Path $Runtime.SS_BIN -ArgLike "*$SsConfig*"
     if (-not $ssRunning) {
         $ssLog = Join-Path $LogDir 'ss-local.err.log'
         $tail = if (Test-Path -LiteralPath $ssLog) { (Get-Content -Tail 20 -LiteralPath $ssLog) -join [Environment]::NewLine } else { '' }
@@ -389,14 +395,14 @@ function Get-PhysicalDnsServers {
 function Start-Tun2Socks {
     param($Runtime)
     Write-Step "Starting tun2socks on TUN adapter $($Runtime.TUN_NAME)"
-    $existing = Get-ProcessByPathAndArgs -Name (Split-Path -Leaf $Runtime.TUN2SOCKS_BIN) -Path $Runtime.TUN2SOCKS_BIN -ArgLike "*$($Runtime.TUN_NAME)*"
+    $existing = Get-ProcessByPathAndArgs -Path $Runtime.TUN2SOCKS_BIN -ArgLike "*$($Runtime.TUN_NAME)*"
     if ($existing) { return }
 
     Start-Process -FilePath $Runtime.TUN2SOCKS_BIN `
         -ArgumentList @(
-            '-device', "tun://$($Runtime.TUN_NAME)",
-            '-proxy', "socks5://$($Runtime.SOCKS_HOST):$($Runtime.SOCKS_PORT)",
-            '-loglevel', 'info'
+            '--device', "tun://$($Runtime.TUN_NAME)",
+            '--proxy', "socks5://$($Runtime.SOCKS_HOST):$($Runtime.SOCKS_PORT)",
+            '--loglevel', 'warning'
         ) `
         -WorkingDirectory (Split-Path -Parent $Runtime.TUN2SOCKS_BIN) `
         -RedirectStandardOutput (Join-Path $LogDir 'tun2socks.out.log') `
@@ -480,7 +486,7 @@ function Stop-Vpn {
         $state = Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json
     }
 
-    Stop-ProcessByPathAndArgs -Name (Split-Path -Leaf $runtime.TUN2SOCKS_BIN) -Path $runtime.TUN2SOCKS_BIN -ArgLike "*$($runtime.TUN_NAME)*"
+    Stop-ProcessByPathAndArgs -Path $runtime.TUN2SOCKS_BIN -ArgLike "*$($runtime.TUN_NAME)*"
     Stop-LocalPortOwner -Port $runtime.CK_LISTEN_PORT
     Stop-LocalPortOwner -Port $runtime.SOCKS_PORT
 
@@ -509,9 +515,9 @@ function Stop-Vpn {
         }
     }
 
-    Stop-ProcessByPathAndArgs -Name 'ss-local.exe' -Path $runtime.SS_BIN -ArgLike "*$SsConfig*"
-    Stop-ProcessByPathAndArgs -Name 'ck-client.exe' -Path $runtime.CK_BIN -ArgLike "*$CkUdpConfig*"
-    Stop-ProcessByPathAndArgs -Name 'ck-client.exe' -Path $runtime.CK_BIN -ArgLike "*$CkConfig*"
+    Stop-ProcessByPathAndArgs -Path $runtime.SS_BIN -ArgLike "*$SsConfig*"
+    Stop-ProcessByPathAndArgs -Path $runtime.CK_BIN -ArgLike "*$CkUdpConfig*"
+    Stop-ProcessByPathAndArgs -Path $runtime.CK_BIN -ArgLike "*$CkConfig*"
 
     Remove-Item -LiteralPath $StateFile -ErrorAction SilentlyContinue
 }

@@ -108,7 +108,7 @@ SS_PASSWORD=<generated Shadowsocks password>
 CK_UID=<generated Cloak UID>
 CK_PUBLIC_KEY=<generated Cloak public key>
 CK_SERVER_NAME=tile.openstreetmap.org
-CK_BROWSER_SIG=chrome
+CK_BROWSER_SIG=firefox
 CK_PROXY_METHOD=shadowsocks
 CK_ENCRYPTION_METHOD=aes-gcm
 ```
@@ -202,7 +202,7 @@ SS_PASSWORD=$SS_PASSWORD
 CK_UID=$CK_UID
 CK_PUBLIC_KEY=$PUBLIC_KEY
 CK_SERVER_NAME=tile.openstreetmap.org
-CK_BROWSER_SIG=chrome
+CK_BROWSER_SIG=firefox
 CK_PROXY_METHOD=shadowsocks
 CK_ENCRYPTION_METHOD=aes-gcm
 CK_TRANSPORT=direct
@@ -310,7 +310,7 @@ contain credentials.
 ## iPhone Setup with Shadowrocket
 
 Install Shadowrocket from the App Store. On iPhone, Shadowrocket connects
-directly to the Cloak/Shadowsocks server, so it does not use AmneziaVPN,
+directly to the Cloak/Shadowsocks server, so it does not use
 `tun2socks`, or the local listener values from `config-local/client.env`.
 
 The quickest path is the QR code from `install-sscloak-server.sh`: Servers tab ->
@@ -358,19 +358,21 @@ Use Global Routing if you want all iPhone traffic through the tunnel.
 
 ## Windows Full-Tunnel Setup
 
-Windows Shadowsocks GUI mode is a system proxy, not a full VPN. For full-device
-routing, install AmneziaVPN on the Windows client machine. This setup uses
-these bundled executables by default:
+Windows Shadowsocks GUI mode is a system proxy, not a full VPN. Full-device
+routing needs these upstream binaries. Download them and put them in `bin\`
+next to `vpn.ps1` (or in the directory named by `BIN_DIR`); release file names
+can stay as they are. `wintun.dll` must sit next to the tun2socks executable.
 
-```text
-C:\Program Files\AmneziaVPN\cloak\ck-client.exe
-C:\Program Files\AmneziaVPN\ss\ss-local.exe
-C:\Program Files\AmneziaVPN\xray\tun2socks.exe
-```
+| | Release page | File |
+|---|---|---|
+| Cloak | github.com/cbeuw/Cloak/releases | `ck-client-windows-amd64-<ver>.exe` |
+| Shadowsocks | github.com/shadowsocks/shadowsocks-rust/releases | `sslocal.exe` from `shadowsocks-<ver>.x86_64-pc-windows-msvc.zip` |
+| tun2socks | github.com/xjasonlyu/tun2socks/releases | `tun2socks-windows-amd64.exe` from its zip |
+| Wintun | www.wintun.net | `wintun\bin\amd64\wintun.dll` from its zip |
 
-The standalone Shadowsocks Windows GUI app is not required for full-tunnel mode.
-If any binary is installed somewhere else, set `CK_BIN`, `SS_BIN`, or
-`TUN2SOCKS_BIN` to the full executable path.
+`PATH` is searched too (`ck-client.exe`, `sslocal.exe`/`ss-local.exe`,
+`tun2socks.exe`). To point at one binary explicitly, set `CK_BIN`, `SS_BIN`, or
+`TUN2SOCKS_BIN` to its full path.
 
 From this directory, generate Windows runtime files:
 
@@ -384,13 +386,13 @@ Then start an elevated PowerShell from this directory and run:
 .\vpn.cmd run
 ```
 
-`run` starts `ck-client`, `ss-local`, and `tun2socks`, creates a TUN adapter
+`run` starts `ck-client`, `sslocal`, and `tun2socks`, creates a TUN adapter
 named `sscloak`, adds split default routes through it, and restores routes when
 you press Ctrl-C.
 
 By default, Windows uses `TUN_DNS_MODE=tunnel`: a second Cloak client carries
-UDP through the server's `ssudp` method, and `ss-local -u` provides
-SOCKS5 UDP relay. DNS therefore resolves from the VPN server rather than the
+UDP through the server's `ssudp` method, and `sslocal` runs in
+`tcp_and_udp` mode to provide SOCKS5 UDP relay. DNS therefore resolves from the VPN server rather than the
 local network. `physical` bypasses the tunnel through the active adapter;
 `none` leaves the TUN adapter without configured DNS servers.
 
@@ -409,37 +411,38 @@ The Windows script writes generated runtime files under `config-windows/`.
 
 ## Linux Full-Tunnel Setup
 
-Install AmneziaVPN on the Linux client machine. This setup uses the binaries
-bundled with it:
+The client needs three binaries, from the same release pages as on Windows
+(linux builds) or from distro packages:
 
 - `ck-client`, the Cloak client
-- `ss-local`, the Shadowsocks local client
+- `sslocal` (shadowsocks-rust) or `ss-local` (shadowsocks-libev)
 - `tun2socks`, for routing the TUN interface into the local SOCKS proxy
 
 `./vpn.sh install` looks for these command names in `PATH`:
 
 ```text
-ck-client
-ss-local
-tun2socks
+ck-client  or ck-client-linux-*
+sslocal    or ss-local
+tun2socks  or tun2socks-linux-*
 ```
 
-If they are not in `PATH`, the installer searches executable files under:
+If they are not in `PATH`, the installer searches executable files (remember
+`chmod +x` on downloads) under:
 
 ```text
+bin/   (next to vpn.sh)
 /usr/local/bin
 /usr/bin
 /bin
 /opt
 ```
 
-If any binary is installed somewhere outside `PATH`, pass explicit paths. With a
-typical AmneziaVPN install this may look like:
+If any binary is installed somewhere else, pass explicit paths:
 
 ```bash
-CK_BIN=/opt/AmneziaVPN/client/bin/ck-client \
-SS_BIN=/opt/AmneziaVPN/client/bin/ss-local \
-TUN2SOCKS_BIN=/opt/AmneziaVPN/client/bin/tun2socks \
+CK_BIN=/opt/sscloak/ck-client \
+SS_BIN=/opt/sscloak/sslocal \
+TUN2SOCKS_BIN=/opt/sscloak/tun2socks \
 ./vpn.sh install
 ```
 

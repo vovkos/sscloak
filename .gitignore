@@ -23,3 +23,6 @@ tmp/
 Thumbs.db
 .idea/
 .vscode/
+
+# Client binaries, downloaded by hand from upstream releases
+bin/
