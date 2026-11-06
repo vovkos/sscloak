@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Разворачивает сервер sscloak (Cloak + Shadowsocks) на чистом Ubuntu.
-# На выходе: работающие systemd-сервисы и PNG с QR-кодом для Shadowrocket.
+# Sets up an sscloak server (Cloak + Shadowsocks) on a clean Ubuntu host.
+# Result: running systemd services and a Shadowrocket QR-code PNG.
 #
-#   scp ubuntu-server-setup.sh user@server:~/
-#   ssh user@server 'bash ~/ubuntu-server-setup.sh'
+#   scp install-sscloak-server.sh user@server:~/
+#   ssh -t user@server 'bash ~/install-sscloak-server.sh'
 #
-# Пароль sudo спрашивается один раз, когда он нужен.
+# The sudo password is asked once, when first needed.
 set -euo pipefail
 
 CLOAK_VERSION="${CLOAK_VERSION:-v2.12.0}"
@@ -29,25 +29,25 @@ SELFTEST_PIDS=()
 
 usage() {
   cat <<'EOF'
-Использование: bash ubuntu-server-setup.sh [--help]
+Usage: bash install-sscloak-server.sh [--help]
 
-Ставит на этот сервер ck-server + ssserver, генерирует ключи, поднимает
-systemd-сервисы, открывает порт и кладёт рядом PNG с QR-кодом для Shadowrocket.
+Installs ck-server + ssserver on this host, generates keys, starts systemd
+services, opens the port, and writes a Shadowrocket QR-code PNG.
 
-Переменные окружения (все необязательные):
-  SS_HOST=<домен|IP>     адрес для клиентов (по умолчанию -- публичный IP)
-  SS_PORT=443            публичный TCP-порт Cloak
-  OUT_DIR=<каталог>      куда положить QR-код (по умолчанию -- текущий каталог)
-  REGENERATE=1           перегенерировать ключи, даже если сервер уже настроен
-  SKIP_SELFTEST=1        не проверять туннель локальным клиентом
-  CLOAK_VERSION, SSRUST_VERSION -- версии релизов
+Environment variables (all optional):
+  SS_HOST=<domain|IP>    address clients connect to (default: public IP)
+  SS_PORT=443            public Cloak TCP port
+  OUT_DIR=<dir>          where to write the QR code (default: current dir)
+  REGENERATE=1           regenerate keys even if the server is already set up
+  SKIP_SELFTEST=1        skip the local-client tunnel check
+  CLOAK_VERSION, SSRUST_VERSION -- release versions
 EOF
 }
 
 say()  { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
 warn() { printf '\033[33m    ! %s\033[0m\n' "$*" >&2; }
-die()  { printf '\033[31m\nОшибка: %s\033[0m\n' "$*" >&2; exit 1; }
+die()  { printf '\033[31m\nError: %s\033[0m\n' "$*" >&2; exit 1; }
 
 cleanup() {
   local pid
@@ -59,7 +59,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-ask() { # ask "вопрос" [умолчание] -- без терминала просто берёт умолчание
+ask() { # ask "question" [default] -- without a terminal, takes the default
   local prompt="$1" def="${2:-}" ans
   if [[ ! -t 0 ]]; then
     printf '%s' "$def"
@@ -69,7 +69,7 @@ ask() { # ask "вопрос" [умолчание] -- без терминала �
   printf '%s' "${ans:-$def}"
 }
 
-confirm() { # confirm "вопрос" [y|n]
+confirm() { # confirm "question" [y|n]
   local prompt="$1" def="${2:-y}" hint ans
   if [[ ! -t 0 ]]; then
     [[ "$def" == y ]]
@@ -78,7 +78,7 @@ confirm() { # confirm "вопрос" [y|n]
   if [[ "$def" == y ]]; then hint="Y/n"; else hint="y/N"; fi
   read -r -p "    $prompt [$hint]: " ans || true
   ans="${ans:-$def}"
-  [[ "$ans" =~ ^([yY]|[дД]|yes|да)$ ]]
+  [[ "$ans" =~ ^([yY]|[yY][eE][sS])$ ]]
 }
 
 init_sudo() {
@@ -86,12 +86,12 @@ init_sudo() {
     SUDO=""
     return
   fi
-  command -v sudo >/dev/null 2>&1 || die "Нет sudo, а скрипт запущен не от root."
+  command -v sudo >/dev/null 2>&1 || die "Not root and no sudo."
   if ! sudo -n true 2>/dev/null; then
-    say "Нужны права root -- введите пароль sudo"
+    say "Root required -- enter the sudo password"
     sudo -v
   fi
-  # Пароль спрашиваем один раз: держим таймаут sudo живым до конца установки.
+  # Ask once: keep the sudo timestamp alive until the install finishes.
   ( while true; do sleep 50; sudo -n true 2>/dev/null || exit; done ) &
   KEEPALIVE_PID=$!
   SUDO="sudo"
@@ -105,11 +105,11 @@ apt_install() {
   ((${#missing[@]})) || return 0
 
   if (( ! APT_UPDATED )); then
-    say "Обновляю списки пакетов"
+    say "Updating package lists"
     $SUDO apt-get update -qq
     APT_UPDATED=1
   fi
-  info "Ставлю: ${missing[*]}"
+  info "Installing: ${missing[*]}"
   $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
 }
 
@@ -117,26 +117,26 @@ detect_arch() {
   case "$(uname -m)" in
     x86_64|amd64)  GO_ARCH="amd64"; SSRUST_TRIPLE="x86_64-unknown-linux-gnu" ;;
     aarch64|arm64) GO_ARCH="arm64"; SSRUST_TRIPLE="aarch64-unknown-linux-gnu" ;;
-    *) die "Архитектура $(uname -m) не поддерживается скриптом -- ставьте бинарники вручную (README-ru.md)." ;;
+    *) die "Architecture $(uname -m) not supported by this script -- install binaries by hand (README.md)." ;;
   esac
 }
 
-fetch() { # fetch URL файл
-  curl -fsSL --retry 3 --connect-timeout 15 -o "$2" "$1" || die "Не удалось скачать $1"
+fetch() { # fetch URL file
+  curl -fsSL --retry 3 --connect-timeout 15 -o "$2" "$1" || die "Download failed: $1"
 }
 
-install_bin() { # install_bin файл имя
+install_bin() { # install_bin file name
   $SUDO install -m 0755 "$1" "/usr/local/bin/$2"
-  info "Установлен /usr/local/bin/$2"
+  info "Installed /usr/local/bin/$2"
 }
 
 install_cloak() { # install_cloak server|client
   local role="$1" name="ck-$1"
   if command -v "$name" >/dev/null 2>&1; then
-    info "$name уже есть: $(command -v "$name")"
+    info "$name already present: $(command -v "$name")"
     return
   fi
-  info "Скачиваю $name $CLOAK_VERSION"
+  info "Downloading $name $CLOAK_VERSION"
   fetch "https://github.com/cbeuw/Cloak/releases/download/${CLOAK_VERSION}/ck-${role}-linux-${GO_ARCH}-${CLOAK_VERSION}" \
         "$TMP_DIR/$name"
   install_bin "$TMP_DIR/$name" "$name"
@@ -145,26 +145,26 @@ install_cloak() { # install_cloak server|client
 install_shadowsocks() { # install_shadowsocks ssserver|sslocal
   local want="$1" unpack="$TMP_DIR/ssrust" bin
   if command -v "$want" >/dev/null 2>&1; then
-    info "$want уже есть: $(command -v "$want")"
+    info "$want already present: $(command -v "$want")"
     return
   fi
   mkdir -p "$unpack"
   if [[ ! -f "$TMP_DIR/ssrust.tar.xz" ]]; then
-    info "Скачиваю shadowsocks-rust $SSRUST_VERSION"
+    info "Downloading shadowsocks-rust $SSRUST_VERSION"
     fetch "https://github.com/shadowsocks/shadowsocks-rust/releases/download/${SSRUST_VERSION}/shadowsocks-${SSRUST_VERSION}.${SSRUST_TRIPLE}.tar.xz" \
           "$TMP_DIR/ssrust.tar.xz"
     tar -xJf "$TMP_DIR/ssrust.tar.xz" -C "$unpack"
   fi
   bin="$(find "$unpack" -type f -name "$want" | head -n 1)"
-  [[ -n "$bin" ]] || die "В архиве shadowsocks-rust нет $want."
+  [[ -n "$bin" ]] || die "No $want in the shadowsocks-rust archive."
   install_bin "$bin" "$want"
 }
 
-json_string() { # json_string файл Ключ
+json_string() { # json_string file Key
   $SUDO sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$1" | head -n 1
 }
 
-env_value() { # env_value файл КЛЮЧ
+env_value() { # env_value file KEY
   $SUDO sed -n "s/^$2=//p" "$1" | head -n 1
 }
 
@@ -180,7 +180,7 @@ urlencode() {
   printf '%s' "$out"
 }
 
-write_unit() { # write_unit имя описание команда after
+write_unit() { # write_unit name description command after
   local name="$1" desc="$2" exec_line="$3" after="$4"
   cat > "$TMP_DIR/$name.service" <<EOF
 [Unit]
@@ -199,8 +199,8 @@ EOF
   $SUDO install -m 0644 "$TMP_DIR/$name.service" "/etc/systemd/system/$name.service"
 }
 
-# Проверяем весь путь так же, как это сделает телефон: локальный ck-client +
-# sslocal -> Cloak -> Shadowsocks -> интернет.
+# Check the whole path the way a phone would: local ck-client +
+# sslocal -> Cloak -> Shadowsocks -> internet.
 selftest() {
   local ck_port=41080 socks_port=41081 out=""
 
@@ -251,14 +251,14 @@ EOF
   SELFTEST_PIDS=()
 
   if [[ -n "$out" ]]; then
-    info "Туннель работает, внешний IP через него: $out"
+    info "Tunnel works, external IP through it: $out"
     return 0
   fi
 
-  warn "Самопроверка не прошла -- трафик через туннель не пошёл."
+  warn "Self-test failed -- no traffic through the tunnel."
   warn "ck-client: $(tail -n 3 "$TMP_DIR/ck-test.log" 2>/dev/null | tr '\n' ' ')"
   warn "sslocal:   $(tail -n 3 "$TMP_DIR/ss-test.log" 2>/dev/null | tr '\n' ' ')"
-  warn "Конфигурация установлена; проверьте логи сервисов и фаервол провайдера."
+  warn "Config is installed; check the service logs and the provider firewall."
   return 1
 }
 
@@ -293,21 +293,21 @@ make_qr() {
     chown "$owner" "$txt" "$png" 2>/dev/null || true
   fi
 
-  say "QR-код для Shadowrocket"
+  say "Shadowrocket QR code"
   qrencode -t ANSIUTF8 "$url"
-  info "PNG:    $png"
-  info "Ссылка: $txt"
+  info "PNG:  $png"
+  info "Link: $txt"
   printf '\n%s\n' "$url"
 
   cat <<EOF
 
-    Забрать PNG на свой компьютер:
+    Copy the PNG to your computer:
       scp ${SUDO_USER:-root}@${SS_HOST}:${png} .
 
-    Импорт: Shadowrocket -> вкладка Servers -> "+" -> иконка сканера -> QR.
-    Дальше выбрать сервер, включить VPN, для полного туннеля Global Routing -> Proxy.
+    Import: Shadowrocket -> Servers tab -> "+" -> scanner icon -> QR.
+    Then select the server, enable VPN; for a full tunnel set Global Routing -> Proxy.
 
-    В PNG и .txt лежат пароль и ключи -- после импорта удалите:
+    The PNG and .txt contain the password and keys -- delete them after import:
       shred -u ${png} ${txt}
 EOF
 }
@@ -319,8 +319,8 @@ main() {
     *) usage >&2; exit 2 ;;
   esac
 
-  command -v apt-get >/dev/null 2>&1 || die "Скрипт рассчитан на Ubuntu/Debian (нужен apt-get)."
-  command -v systemctl >/dev/null 2>&1 || die "Нужен systemd."
+  command -v apt-get >/dev/null 2>&1 || die "Ubuntu/Debian only (needs apt-get)."
+  command -v systemctl >/dev/null 2>&1 || die "systemd required."
 
   TMP_DIR="$(mktemp -d)"
   chmod 700 "$TMP_DIR"
@@ -328,31 +328,31 @@ main() {
   detect_arch
   init_sudo
 
-  say "Ставлю зависимости"
+  say "Installing dependencies"
   apt_install curl xz-utils openssl ca-certificates qrencode
   install_cloak server
   install_shadowsocks ssserver
 
-  say "Параметры"
-  SS_PORT="$(ask 'Публичный TCP-порт Cloak' "$SS_PORT")"
-  [[ "$SS_PORT" =~ ^[0-9]+$ ]] || die "Порт должен быть числом: $SS_PORT"
+  say "Parameters"
+  SS_PORT="$(ask 'Public Cloak TCP port' "$SS_PORT")"
+  [[ "$SS_PORT" =~ ^[0-9]+$ ]] || die "Port must be a number: $SS_PORT"
 
   if [[ -z "$SS_HOST" ]]; then
     SS_HOST="$(curl -4 -fsS --max-time 5 ifconfig.me 2>/dev/null || true)"
   fi
-  SS_HOST="$(ask 'Адрес сервера для клиентов (домен или IP)' "$SS_HOST")"
-  [[ -n "$SS_HOST" ]] || die "Нужен адрес сервера: SS_HOST=<домен|IP> bash ubuntu-server-setup.sh"
+  SS_HOST="$(ask 'Server address for clients (domain or IP)' "$SS_HOST")"
+  [[ -n "$SS_HOST" ]] || die "Server address required: SS_HOST=<domain|IP> bash install-sscloak-server.sh"
 
   local dir="/opt/sscloak-$SS_PORT" reuse=0
   if $SUDO test -f "$dir/client.env" && $SUDO test -f "$dir/ck-config.json" && (( ! REGENERATE )); then
-    warn "$dir уже настроен."
-    if confirm "Оставить существующие ключи (иначе все текущие клиенты отвалятся)?" y; then
+    warn "$dir is already set up."
+    if confirm "Keep existing keys (otherwise all current clients disconnect)?" y; then
       reuse=1
     fi
   fi
 
   if (( reuse )); then
-    say "Использую существующие ключи из $dir"
+    say "Reusing existing keys from $dir"
     PRIVATE_KEY="$(json_string "$dir/ck-config.json" PrivateKey)"
     CK_UID="$(env_value "$dir/client.env" CK_UID)"
     PUBLIC_KEY="$(env_value "$dir/client.env" CK_PUBLIC_KEY)"
@@ -360,7 +360,7 @@ main() {
     SS_METHOD="$(env_value "$dir/client.env" SS_METHOD)"
     CK_SERVER_NAME="$(env_value "$dir/client.env" CK_SERVER_NAME)"
   else
-    say "Генерирую ключи Cloak и пароль Shadowsocks"
+    say "Generating Cloak keys and Shadowsocks password"
     local key_text uid_text
     key_text="$(ck-server -key | sed -r 's/\x1B\[[0-9;]*[mK]//g')"
     uid_text="$(ck-server -uid | sed -r 's/\x1B\[[0-9;]*[mK]//g')"
@@ -371,13 +371,13 @@ main() {
   fi
 
   [[ -n "$PRIVATE_KEY" && -n "$PUBLIC_KEY" && -n "$CK_UID" && -n "$SS_PASSWORD" ]] \
-    || die "Не удалось получить ключи/пароль."
+    || die "Could not obtain keys/password."
 
-  say "Пишу конфигурацию в $dir"
+  say "Writing config to $dir"
   $SUDO install -d -m 700 "$dir"
   umask 077
 
-  # ssudp + tcp_and_udp нужны для UDP через туннель (DNS в режиме TUN_DNS_MODE=tunnel).
+  # ssudp + tcp_and_udp carry UDP through the tunnel (DNS in TUN_DNS_MODE=tunnel).
   cat > "$TMP_DIR/ck-config.json" <<EOF
 {
   "ProxyBook": {
@@ -425,7 +425,7 @@ EOF
   $SUDO install -m 600 "$TMP_DIR/ss-config.json" "$dir/ss-config.json"
   $SUDO install -m 600 "$TMP_DIR/client.env"     "$dir/client.env"
 
-  say "Поднимаю сервисы"
+  say "Starting services"
   write_unit "sscloak-ss-$SS_PORT" "Shadowsocks server for sscloak-$SS_PORT" \
     "/usr/local/bin/ssserver -c $dir/ss-config.json" "network-online.target"
   write_unit "sscloak-ck-$SS_PORT" "Cloak server for sscloak-$SS_PORT" \
@@ -436,38 +436,38 @@ EOF
   $SUDO systemctl restart "sscloak-ss-$SS_PORT.service" "sscloak-ck-$SS_PORT.service"
 
   if command -v ufw >/dev/null 2>&1 && $SUDO ufw status 2>/dev/null | grep -q '^Status: active'; then
-    info "Открываю $SS_PORT/tcp в ufw"
+    info "Opening $SS_PORT/tcp in ufw"
     $SUDO ufw allow "$SS_PORT/tcp" >/dev/null
   fi
 
   sleep 2
-  say "Проверяю сервисы"
+  say "Checking services"
   local failed=0
   $SUDO systemctl is-active --quiet "sscloak-ss-$SS_PORT.service" || failed=1
   $SUDO systemctl is-active --quiet "sscloak-ck-$SS_PORT.service" || failed=1
   if (( failed )); then
     $SUDO journalctl -u "sscloak-ss-$SS_PORT" -u "sscloak-ck-$SS_PORT" -n 30 --no-pager || true
-    die "Сервисы не поднялись -- смотрите лог выше."
+    die "Services failed to start -- see the log above."
   fi
-  info "sscloak-ss-$SS_PORT и sscloak-ck-$SS_PORT запущены"
+  info "sscloak-ss-$SS_PORT and sscloak-ck-$SS_PORT are running"
   $SUDO ss -lntp 2>/dev/null | grep -E ":$SS_PORT|:$SS_BACKEND_PORT" || true
 
   local selftest_ok=1
   if (( SKIP_SELFTEST )); then
-    info "Самопроверка пропущена (SKIP_SELFTEST=1)"
+    info "Self-test skipped (SKIP_SELFTEST=1)"
   else
-    say "Проверяю туннель локальным клиентом"
+    say "Checking the tunnel with a local client"
     selftest || selftest_ok=0
   fi
 
   make_qr
 
-  say "Готово"
-  info "Значения для десктопных клиентов: $dir/client.env (config-local/client.env в репозитории)"
-  info "Логи:       journalctl -u sscloak-ck-$SS_PORT -u sscloak-ss-$SS_PORT -f"
-  info "Перезапуск: systemctl restart sscloak-ss-$SS_PORT sscloak-ck-$SS_PORT"
-  warn "Если у провайдера свой внешний фаервол (DigitalOcean, Hetzner, AWS) -- откройте $SS_PORT/tcp и там."
-  (( selftest_ok )) || warn "Самопроверка туннеля не прошла -- сервер поднят, но проверьте сеть/фаервол."
+  say "Done"
+  info "Desktop client values: $dir/client.env (config-local/client.env in the repo)"
+  info "Logs:    journalctl -u sscloak-ck-$SS_PORT -u sscloak-ss-$SS_PORT -f"
+  info "Restart: systemctl restart sscloak-ss-$SS_PORT sscloak-ck-$SS_PORT"
+  warn "If the provider has its own firewall (DigitalOcean, Hetzner, AWS), open $SS_PORT/tcp there too."
+  (( selftest_ok )) || warn "Tunnel self-test failed -- server is up, but check network/firewall."
 }
 
 main "$@"
